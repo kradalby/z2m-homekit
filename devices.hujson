@@ -1,0 +1,100 @@
+{
+  // z2m-homekit device configuration
+  // Based on zigbee2mqtt network
+
+  "devices": [
+    // ==============================
+    // Climate Sensors (Aqara)
+    // ==============================
+    {
+      "id": "kitchen-aqara",
+      "name": "Kitchen",
+      "topic": "kitchen-aqara",
+      "type": "climate_sensor",
+      // Creates both temperature and humidity sensors
+      "features": {
+        "temperature": true,
+        "humidity": true,
+        "battery": true,
+      },
+    },
+    {
+      "id": "bathroom-aqara",
+      "name": "Bathroom",
+      "topic": "bathroom-aqara",
+      "type": "climate_sensor",
+      "features": {
+        "temperature": true,
+        "humidity": true,
+        "battery": true,
+      },
+    },
+    {
+      "id": "office-aqara",
+      "name": "Office",
+      "topic": "office-aqara",
+      "type": "climate_sensor",
+      "features": {
+        "temperature": true,
+        "humidity": true,
+        "battery": true,
+      },
+    },
+    {
+      "id": "living-room-aqara",
+      "name": "Living Room",
+      "topic": "living-room-aqara",
+      "type": "climate_sensor",
+      "features": {
+        "temperature": true,
+        "humidity": true,
+        "battery": true,
+      },
+    },
+
+    // ==============================
+    // Motion Sensors
+    // ==============================
+    {
+      "id": "office-motion",
+      "name": "Office Motion",
+      "topic": "office-motion",
+      "type": "occupancy_sensor",
+      "features": {
+        "battery": true,
+      },
+    },
+
+    // ==============================
+    // Lightbulbs (IKEA Tradfri)
+    // ==============================
+    {
+      "id": "living-room-speaker-light",
+      "name": "Living Room Speaker",
+      "topic": "living-room-speaker-light",
+      "type": "lightbulb",
+      "features": {
+        "brightness": true,
+        "color": true,  // RGB color support
+      },
+    },
+    {
+      "id": "living-inner-light",
+      "name": "Living Room Ceiling Inner",
+      "topic": "living-inner-light",
+      "type": "lightbulb",
+      "features": {
+        "brightness": true,
+      },
+    },
+    {
+      "id": "living-window-light",
+      "name": "Living Room Ceiling Window",
+      "topic": "living-window-light",
+      "type": "lightbulb",
+      "features": {
+        "brightness": true,
+      },
+    },
+  ],
+}

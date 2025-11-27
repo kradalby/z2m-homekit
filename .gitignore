@@ -1,0 +1,21 @@
+# Build artifacts
+z2m-homekit
+result
+*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+
+# Test artifacts
+coverage.out
+coverage.html
+
+# Reference directories (temporary)
+mqttthing-temp/
+tasmota-homekit-temp/

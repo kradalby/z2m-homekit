@@ -1,0 +1,133 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  tests:
+    name: Tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: nixbuild/nix-quick-install-action@889f3180bb5f064ee9e3201428d04ae9e41d54ad # v31
+
+      - uses: nix-community/cache-nix-action@135667ec418502fa5a3598af6fb9eb733888ce6a # v6.1.3
+
+      - name: Run unit tests with coverage
+        run: nix develop --command go test -v -cover -coverprofile=coverage.out ./...
+
+      - name: Coverage summary
+        run: nix develop --command go tool cover -func=coverage.out | tail -n 20
+
+      - name: Run race detector
+        run: nix develop --command go test -race ./...
+
+      - name: Upload coverage artifact
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.out
+          retention-days: 30
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: nixbuild/nix-quick-install-action@889f3180bb5f064ee9e3201428d04ae9e41d54ad # v31
+
+      - uses: nix-community/cache-nix-action@135667ec418502fa5a3598af6fb9eb733888ce6a # v6.1.3
+
+      - name: Run golangci-lint
+        run: nix develop --command golangci-lint run ./...
+
+  build:
+    name: Build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: nixbuild/nix-quick-install-action@889f3180bb5f064ee9e3201428d04ae9e41d54ad # v31
+
+      - uses: nix-community/cache-nix-action@135667ec418502fa5a3598af6fb9eb733888ce6a # v6.1.3
+
+      - name: Build binary with Nix
+        run: nix build -L .#z2m-homekit
+
+      - name: Show build info
+        run: |
+          file ./result/bin/z2m-homekit
+          ls -lh ./result/bin/z2m-homekit
+          ./result/bin/z2m-homekit --help >/dev/null 2>&1 || true
+
+      - name: Upload Linux artifact
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: z2m-homekit-linux
+          path: result/bin/z2m-homekit
+          retention-days: 7
+
+  flake-check:
+    name: Flake Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: nixbuild/nix-quick-install-action@889f3180bb5f064ee9e3201428d04ae9e41d54ad # v31
+
+      - uses: nix-community/cache-nix-action@135667ec418502fa5a3598af6fb9eb733888ce6a # v6.1.3
+
+      - name: Run nix flake check
+        run: nix flake check
+        timeout-minutes: 30
+
+  nixos-module:
+    if: runner.os == 'Linux'
+    name: NixOS Module Smoke Test
+    runs-on: ubuntu-latest
+    needs: flake-check
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: nixbuild/nix-quick-install-action@889f3180bb5f064ee9e3201428d04ae9e41d54ad # v31
+
+      - uses: nix-community/cache-nix-action@135667ec418502fa5a3598af6fb9eb733888ce6a # v6.1.3
+
+      - name: Evaluate module import
+        run: |
+          cat > test-module.nix <<'EOF'
+          { pkgs, ... }: {
+            imports = [ ./flake.nix ];
+            services.z2m-homekit = {
+              enable = true;
+              devicesConfig = pkgs.writeText "devices.hujson" ''
+                { "devices": [ { "id": "demo", "name": "Demo", "topic": "demo", "type": "lightbulb" } ] }
+              '';
+            };
+          }
+          EOF
+
+          nix eval --impure --expr '
+            let
+              nixos = import <nixpkgs/nixos> {
+                configuration = { pkgs, ... }: {
+                  imports = [ ./test-module.nix ];
+                  boot.loader.grub.enable = false;
+                  fileSystems."/" = { device = "/dev/null"; };
+                };
+              };
+            in nixos.config.services.z2m-homekit.enable
+          '

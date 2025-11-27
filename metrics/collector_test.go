@@ -29,7 +29,7 @@ func TestNewCollectorRequiresContext(t *testing.T) {
 func TestNewCollectorRequiresLogger(t *testing.T) {
 	ctx := context.Background()
 	bus, _ := events.New(testLogger())
-	defer bus.Close()
+	defer func() { _ = bus.Close() }()
 
 	_, err := NewCollector(ctx, nil, bus, nil)
 	if err == nil {
@@ -54,7 +54,7 @@ func TestNewCollectorSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create bus: %v", err)
 	}
-	defer bus.Close()
+	defer func() { _ = bus.Close() }()
 
 	reg := prometheus.NewRegistry()
 	collector, err := NewCollector(ctx, testLogger(), bus, reg)
@@ -76,7 +76,7 @@ func TestCollectorObservesStatusEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create bus: %v", err)
 	}
-	defer bus.Close()
+	defer func() { _ = bus.Close() }()
 
 	reg := prometheus.NewRegistry()
 	collector, err := NewCollector(ctx, testLogger(), bus, reg)
@@ -128,7 +128,7 @@ func TestCollectorObservesStateEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create bus: %v", err)
 	}
-	defer bus.Close()
+	defer func() { _ = bus.Close() }()
 
 	reg := prometheus.NewRegistry()
 	collector, err := NewCollector(ctx, testLogger(), bus, reg)

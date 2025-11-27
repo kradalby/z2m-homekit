@@ -37,7 +37,7 @@ func TestNew(t *testing.T) {
 	if bus == nil {
 		t.Fatal("New() returned nil")
 	}
-	defer bus.Close()
+	defer func() { _ = bus.Close() }()
 }
 
 func TestNewRequiresLogger(t *testing.T) {
@@ -52,7 +52,7 @@ func TestBusClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	defer bus.Close()
+	defer func() { _ = bus.Close() }()
 
 	client, err := bus.Client(ClientHAP)
 	if err != nil {
@@ -77,7 +77,7 @@ func TestBusClientUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	defer bus.Close()
+	defer func() { _ = bus.Close() }()
 
 	_, err = bus.Client("unknown-client")
 	if err == nil {

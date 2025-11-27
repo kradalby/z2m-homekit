@@ -1,6 +1,6 @@
 # Build artifacts
-z2m-homekit
-result
+/z2m-homekit
+/result
 *.out
 
 # IDE

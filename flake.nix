@@ -48,7 +48,7 @@
             version = self.rev or "dev";
 
             src = ./.;
-            subPackages = [ "./cmd/z2m-homekit" ];
+            subPackages = [ "cmd/z2m-homekit" ];
             vendorHash = "sha256-sooS4+fi96lvKq1LtCZ2SPUWzh1RKvcTIuMOh1caT/A=";
 
             ldflags = [

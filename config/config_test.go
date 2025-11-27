@@ -27,7 +27,7 @@ func clearEnvVars() {
 		"Z2M_HOMEKIT_BRIDGE_NAME",
 	}
 	for _, env := range envVars {
-		os.Unsetenv(env)
+		_ = os.Unsetenv(env)
 	}
 }
 
@@ -67,10 +67,10 @@ func TestConfigFromEnv(t *testing.T) {
 	clearEnvVars()
 
 	// Set custom values
-	os.Setenv("Z2M_HOMEKIT_HAP_PIN", "12345678")
-	os.Setenv("Z2M_HOMEKIT_HAP_ADDR", "127.0.0.1:51827")
-	os.Setenv("Z2M_HOMEKIT_LOG_LEVEL", "debug")
-	os.Setenv("Z2M_HOMEKIT_LOG_FORMAT", "console")
+	_ = os.Setenv("Z2M_HOMEKIT_HAP_PIN", "12345678")
+	_ = os.Setenv("Z2M_HOMEKIT_HAP_ADDR", "127.0.0.1:51827")
+	_ = os.Setenv("Z2M_HOMEKIT_LOG_LEVEL", "debug")
+	_ = os.Setenv("Z2M_HOMEKIT_LOG_FORMAT", "console")
 	defer clearEnvVars()
 
 	cfg, err := Load()
@@ -102,7 +102,7 @@ func TestConfigValidation(t *testing.T) {
 			name: "invalid pin length",
 			setup: func() {
 				clearEnvVars()
-				os.Setenv("Z2M_HOMEKIT_HAP_PIN", "123") // Too short
+				_ = os.Setenv("Z2M_HOMEKIT_HAP_PIN", "123") // Too short
 			},
 			wantErr: true,
 		},
@@ -110,7 +110,7 @@ func TestConfigValidation(t *testing.T) {
 			name: "valid pin",
 			setup: func() {
 				clearEnvVars()
-				os.Setenv("Z2M_HOMEKIT_HAP_PIN", "12345678")
+				_ = os.Setenv("Z2M_HOMEKIT_HAP_PIN", "12345678")
 			},
 			wantErr: false,
 		},
@@ -118,7 +118,7 @@ func TestConfigValidation(t *testing.T) {
 			name: "invalid log level",
 			setup: func() {
 				clearEnvVars()
-				os.Setenv("Z2M_HOMEKIT_LOG_LEVEL", "invalid")
+				_ = os.Setenv("Z2M_HOMEKIT_LOG_LEVEL", "invalid")
 			},
 			wantErr: true,
 		},
@@ -126,7 +126,7 @@ func TestConfigValidation(t *testing.T) {
 			name: "invalid log format",
 			setup: func() {
 				clearEnvVars()
-				os.Setenv("Z2M_HOMEKIT_LOG_FORMAT", "invalid")
+				_ = os.Setenv("Z2M_HOMEKIT_LOG_FORMAT", "invalid")
 			},
 			wantErr: true,
 		},

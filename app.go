@@ -20,7 +20,6 @@ import (
 	"github.com/kradalby/z2m-homekit/events"
 	"github.com/kradalby/z2m-homekit/logging"
 	"github.com/kradalby/z2m-homekit/metrics"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	mqtt "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/hooks/auth"
@@ -337,7 +336,7 @@ func Main() {
 	kraWeb.Handle("/health", http.HandlerFunc(webServer.HandleHealth))
 	kraWeb.Handle("/qrcode", http.HandlerFunc(webServer.HandleQRCode))
 	kraWeb.Handle("/debug/eventbus", http.HandlerFunc(webServer.HandleEventBusDebug))
-	kraWeb.Handle("/metrics", promhttp.Handler())
+	// Note: /metrics is provided by kraweb internally
 
 	// Setup debug handlers
 	SetupDebugHandlers(kraWeb, hapManager)

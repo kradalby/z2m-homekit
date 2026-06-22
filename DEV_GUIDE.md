@@ -171,4 +171,3 @@ This guide captures common practices across all projects—services like `tasmot
 8. Run `nix run .#test` / `.#lint` / `nix flake check` before every push; ensure CI stays green.
 
 Following these guidelines keeps repos consistent, debuggable, and easy to extend—regardless of whether the next project is a HomeKit bridge, a CLI utility, or a backend service.
-

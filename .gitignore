@@ -1,7 +1,12 @@
 # Build artifacts
 /z2m-homekit
 /result
+/result-*
 *.out
+
+# direnv (.envrc is tracked; per-machine overrides are not)
+.envrc.local
+.direnv/
 
 # IDE
 .idea/

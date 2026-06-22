@@ -1,6 +1,6 @@
 module github.com/kradalby/z2m-homekit
 
-go 1.25.3
+go 1.26
 
 require (
 	github.com/Netflix/go-env v0.1.2

@@ -13,9 +13,9 @@
           pkgs = import nixpkgs { inherit system; };
           lib = pkgs.lib;
 
-          go = pkgs.go_1_25;
+          go = pkgs.go_1_26;
 
-          buildGoModule = pkgs.buildGoModule.override { go = pkgs.go_1_25; };
+          buildGoModule = pkgs.buildGoModule.override { go = pkgs.go_1_26; };
 
         in
         {

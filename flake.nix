@@ -24,6 +24,7 @@
             buildInputs = with pkgs; [
               go
               golangci-lint
+              gofumpt
               gopls
               gotools
               go-tools
@@ -38,7 +39,6 @@
 
               # Useful utilities
               git
-              gnumake
             ];
           };
 

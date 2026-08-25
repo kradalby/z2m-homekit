@@ -1,6 +1,7 @@
 package z2mhomekit
 
 import (
+	"cmp"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -8,7 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -198,8 +199,8 @@ func (ws *WebServer) snapshotState() []events.StateUpdateEvent {
 		snapshot = append(snapshot, evt)
 	}
 
-	sort.Slice(snapshot, func(i, j int) bool {
-		return snapshot[i].DeviceID < snapshot[j].DeviceID
+	slices.SortFunc(snapshot, func(a, b events.StateUpdateEvent) int {
+		return cmp.Compare(a.DeviceID, b.DeviceID)
 	})
 
 	return snapshot
@@ -214,8 +215,8 @@ func (ws *WebServer) snapshotStatuses() []events.ConnectionStatusEvent {
 		statuses = append(statuses, evt)
 	}
 
-	sort.Slice(statuses, func(i, j int) bool {
-		return statuses[i].Component < statuses[j].Component
+	slices.SortFunc(statuses, func(a, b events.ConnectionStatusEvent) int {
+		return cmp.Compare(a.Component, b.Component)
 	})
 
 	return statuses
@@ -628,19 +629,19 @@ func (ws *WebServer) renderLightbulb(deviceID string, info devices.Device, state
 					elem.Text(fmt.Sprintf("%d%%", brightnessHAP)),
 				),
 				elem.Input(attrs.Props{
-					attrs.Type:  "range",
-					attrs.Class: "brightness-slider",
-					attrs.Min:   "0",
-					attrs.Max:   "100",
-					attrs.Value: fmt.Sprintf("%d", brightnessHAP),
-					attrs.Name:  "brightness",
-					"data-device-id":   deviceID,
-					"data-role":        "brightness-slider",
-					"hx-post":          "/brightness/" + deviceID,
-					"hx-trigger":       "change",
-					"hx-target":        "#device-" + deviceID,
-					"hx-swap":          "outerHTML",
-					"hx-include":       "this",
+					attrs.Type:       "range",
+					attrs.Class:      "brightness-slider",
+					attrs.Min:        "0",
+					attrs.Max:        "100",
+					attrs.Value:      fmt.Sprintf("%d", brightnessHAP),
+					attrs.Name:       "brightness",
+					"data-device-id": deviceID,
+					"data-role":      "brightness-slider",
+					"hx-post":        "/brightness/" + deviceID,
+					"hx-trigger":     "change",
+					"hx-target":      "#device-" + deviceID,
+					"hx-swap":        "outerHTML",
+					"hx-include":     "this",
 				}),
 			),
 		)
@@ -782,7 +783,7 @@ func (ws *WebServer) HandleIndex(w http.ResponseWriter, r *http.Request) {
 	for id := range snapshot {
 		deviceIDs = append(deviceIDs, id)
 	}
-	sort.Strings(deviceIDs)
+	slices.Sort(deviceIDs)
 
 	for _, id := range deviceIDs {
 		item := snapshot[id]
@@ -934,12 +935,7 @@ func (ws *WebServer) HandleBrightness(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Clamp brightness to valid range
-	if brightness < 0 {
-		brightness = 0
-	}
-	if brightness > 100 {
-		brightness = 100
-	}
+	brightness = min(max(brightness, 0), 100)
 
 	if err := ws.controller.SetBrightness(r.Context(), deviceID, brightness); err != nil {
 		ws.logger.Error("Failed to set brightness", "device_id", deviceID, "error", err)

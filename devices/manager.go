@@ -125,7 +125,7 @@ func (dm *Manager) SetBrightness(ctx context.Context, deviceID string, brightnes
 	topic := fmt.Sprintf("zigbee2mqtt/%s/set", info.Config.Topic)
 	// Convert HAP brightness (0-100) to Z2M brightness (0-254)
 	z2mBrightness := HAPBrightnessToZ2M(brightness)
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"brightness": z2mBrightness,
 	}
 	data, err := json.Marshal(payload)
@@ -155,8 +155,8 @@ func (dm *Manager) SetColor(ctx context.Context, deviceID string, hue, saturatio
 	}
 
 	topic := fmt.Sprintf("zigbee2mqtt/%s/set", info.Config.Topic)
-	payload := map[string]interface{}{
-		"color": map[string]interface{}{
+	payload := map[string]any{
+		"color": map[string]any{
 			"hue":        hue,
 			"saturation": saturation,
 		},
@@ -188,7 +188,7 @@ func (dm *Manager) SetColorTemp(ctx context.Context, deviceID string, colorTemp 
 	}
 
 	topic := fmt.Sprintf("zigbee2mqtt/%s/set", info.Config.Topic)
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"color_temp": colorTemp,
 	}
 	data, err := json.Marshal(payload)

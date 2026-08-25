@@ -10,12 +10,27 @@
     flake-utils.lib.eachDefaultSystem
       (system:
         let
-          pkgs = import nixpkgs { inherit system; };
+          pkgs = import nixpkgs {
+            inherit system;
+            overlays = [
+              # Several Go tools in nixpkgs are still wired to the default
+              # (older) Go. They embed that toolchain, so with `go 1.27.0` in
+              # go.mod they try to fetch a newer toolchain at run time -- which
+              # fails in sandboxes and offline shells. Rebuild them against
+              # go_latest so the whole shell speaks one Go version.
+              (_final: prev: {
+                gotools = prev.gotools.override { buildGoModule = prev.buildGoLatestModule; };
+                gofumpt = prev.gofumpt.override { buildGoModule = prev.buildGoLatestModule; };
+                go-tools = prev.go-tools.override { buildGoModule = prev.buildGoLatestModule; };
+                delve = prev.delve.override { buildGoModule = prev.buildGoLatestModule; };
+              })
+            ];
+          };
           lib = pkgs.lib;
 
-          go = pkgs.go_1_26;
+          go = pkgs.go_latest;
 
-          buildGoModule = pkgs.buildGoModule.override { go = pkgs.go_1_26; };
+          buildGoModule = pkgs.buildGoLatestModule;
 
         in
         {
@@ -40,6 +55,10 @@
               # Useful utilities
               git
             ];
+
+            # Everything in this shell is already Go 1.27; never let the
+            # toolchain switcher reach for the network.
+            GOTOOLCHAIN = "local";
           };
 
           # Package definition
@@ -49,7 +68,7 @@
 
             src = ./.;
             subPackages = [ "cmd/z2m-homekit" ];
-            vendorHash = "sha256-sooS4+fi96lvKq1LtCZ2SPUWzh1RKvcTIuMOh1caT/A=";
+            vendorHash = "sha256-SseOi8n5DCskSN6Ks2GMaz0yMYcz1WGIGPiqeCcJ9P4=";
 
             ldflags = [
               "-s"

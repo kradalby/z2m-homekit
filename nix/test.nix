@@ -1,4 +1,8 @@
-{ pkgs, system, self }:
+{
+  pkgs,
+  system,
+  self,
+}:
 
 pkgs.testers.nixosTest {
   name = "z2m-homekit";

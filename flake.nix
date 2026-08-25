@@ -10,14 +10,15 @@
   };
 
   outputs =
-    { self
-    , nixpkgs
-    , flake-utils
-    , flake-checks
-    , ...
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+      flake-checks,
+      ...
     }:
-    flake-utils.lib.eachDefaultSystem
-      (system:
+    flake-utils.lib.eachDefaultSystem (
+      system:
       let
         pkgs = import nixpkgs {
           inherit system;
@@ -80,10 +81,13 @@
         checks = {
           build = fc.goBuild common;
           gotest = fc.goTest common;
-          gotest-race = fc.goTest (common // {
-            goRace = true;
-            name = "z2m-homekit-gotest-race";
-          });
+          gotest-race = fc.goTest (
+            common
+            // {
+              goRace = true;
+              name = "z2m-homekit-gotest-race";
+            }
+          );
           golangci-lint = fc.goLint common;
           formatting = fc.goFormat common;
         }
@@ -102,7 +106,7 @@
             delve
 
             # Nix tooling
-            nixpkgs-fmt
+            nixfmt
 
             # Pre-commit hooks
             prek
@@ -121,7 +125,8 @@
           drv = z2m-homekit;
         };
       }
-      ) // {
+    )
+    // {
       nixosModules.default = import ./nix/module.nix;
       overlays.default = final: _prev: {
         z2m-homekit = self.packages.${final.system}.default;

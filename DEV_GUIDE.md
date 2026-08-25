@@ -29,7 +29,7 @@ This guide captures common practices across all projects—services like `tasmot
 
 ## 2. Development Workflow
 
-1. **Use `nix develop`** for every repo. Toolchains (Go, golangci-lint, gofumpt, nixpkgs-fmt, etc.) are pinned there.
+1. **Use `nix develop`** for every repo. Toolchains (Go, golangci-lint, gofumpt, nixfmt, etc.) are pinned there.
 2. **Run flake apps** instead of custom scripts:
    - `nix run .#test` → `go test ./...`
    - `nix run .#test-race`

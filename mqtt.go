@@ -85,7 +85,7 @@ func (h *MQTTHook) OnPublish(cl *mqtt.Client, pk packets.Packet) (packets.Packet
 	}
 
 	// Parse payload
-	var msg map[string]interface{}
+	var msg map[string]any
 	if err := json.Unmarshal(payload, &msg); err != nil {
 		h.logger.Debug("Failed to parse MQTT payload", "error", err)
 		return pk, nil
@@ -110,7 +110,7 @@ func (h *MQTTHook) OnPublish(cl *mqtt.Client, pk packets.Packet) (packets.Packet
 	return pk, nil
 }
 
-func (h *MQTTHook) parseZ2MMessage(device devices.Device, msg map[string]interface{}) (devices.State, []string) {
+func (h *MQTTHook) parseZ2MMessage(device devices.Device, msg map[string]any) (devices.State, []string) {
 	now := time.Now()
 	state := devices.State{
 		ID:          device.ID,
@@ -214,7 +214,7 @@ func (h *MQTTHook) parseZ2MMessage(device devices.Device, msg map[string]interfa
 	}
 
 	// Parse color object
-	if color, ok := msg["color"].(map[string]interface{}); ok {
+	if color, ok := msg["color"].(map[string]any); ok {
 		if hue, ok := color["hue"].(float64); ok {
 			state.Hue = &hue
 			fields = append(fields, "Hue")

@@ -14,7 +14,8 @@ import (
 // SetupDebugHandlers registers the HAP debug handler
 func SetupDebugHandlers(kraWeb interface {
 	Handle(pattern string, handler http.Handler)
-}, hapManager *HAPManager) {
+}, hapManager *HAPManager,
+) {
 	kraWeb.Handle("/debug/hap", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		debugInfo := hapManager.DebugInfo()
 		data, err := json.MarshalIndent(debugInfo, "", "  ")
@@ -32,9 +33,9 @@ func SetupDebugHandlers(kraWeb interface {
 
 // HAPDebugInfo contains debug information about the HomeKit service
 type HAPDebugInfo struct {
-	Server      *ServerInfo     `json:"server,omitempty"`
-	Pairings    []PairingInfo   `json:"pairings,omitempty"`
-	Stats       StatsInfo       `json:"stats"`
+	Server      *ServerInfo          `json:"server,omitempty"`
+	Pairings    []PairingInfo        `json:"pairings,omitempty"`
+	Stats       StatsInfo            `json:"stats"`
 	Accessories []AccessoryDebugInfo `json:"accessories"`
 }
 

@@ -33,10 +33,10 @@ type DeviceFeatures struct {
 	Occupancy   bool `json:"occupancy,omitempty"`
 	Illuminance bool `json:"illuminance,omitempty"`
 	Pressure    bool `json:"pressure,omitempty"`
-	Contact     bool `json:"contact,omitempty"`     // Door/window contact
-	WaterLeak   bool `json:"water_leak,omitempty"`  // Water leak detection
-	Smoke       bool `json:"smoke,omitempty"`       // Smoke detection
-	Tamper      bool `json:"tamper,omitempty"`      // Tamper detection
+	Contact     bool `json:"contact,omitempty"`    // Door/window contact
+	WaterLeak   bool `json:"water_leak,omitempty"` // Water leak detection
+	Smoke       bool `json:"smoke,omitempty"`      // Smoke detection
+	Tamper      bool `json:"tamper,omitempty"`     // Tamper detection
 
 	// Lights
 	Brightness       bool `json:"brightness,omitempty"`
@@ -55,7 +55,7 @@ type Device struct {
 	Name     string         `json:"name"`
 	Topic    string         `json:"topic"` // zigbee2mqtt topic suffix
 	Type     DeviceType     `json:"type"`
-	Features DeviceFeatures `json:"features,omitempty"`
+	Features DeviceFeatures `json:"features"`
 	HomeKit  *bool          `json:"homekit,omitempty"` // default true
 	Web      *bool          `json:"web,omitempty"`     // default true
 }
@@ -236,9 +236,4 @@ func BoolToZ2MState(on bool) string {
 		return "ON"
 	}
 	return "OFF"
-}
-
-// Ptr helpers for creating pointers to values.
-func Ptr[T any](v T) *T {
-	return &v
 }

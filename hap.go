@@ -286,9 +286,9 @@ func (hm *HAPManager) createFan(info accessory.Info, device devices.Device, accI
 
 		hm.commands <- devices.CommandEvent{
 			DeviceID: deviceID,
-			On:       devices.Ptr(on),
+			On:       new(on),
 		}
-		hm.publishCommand(deviceID, events.CommandTypeSetPower, devices.Ptr(on), nil, nil, nil, nil)
+		hm.publishCommand(deviceID, events.CommandTypeSetPower, new(on), nil, nil, nil, nil)
 	})
 
 	// Add rotation speed if speed feature enabled
@@ -305,9 +305,9 @@ func (hm *HAPManager) createFan(info accessory.Info, device devices.Device, accI
 
 			hm.commands <- devices.CommandEvent{
 				DeviceID:   deviceID,
-				Brightness: devices.Ptr(speed), // Reuse brightness field for fan speed
+				Brightness: new(speed), // Reuse brightness field for fan speed
 			}
-			hm.publishCommand(deviceID, events.CommandTypeSetBrightness, nil, devices.Ptr(speed), nil, nil, nil)
+			hm.publishCommand(deviceID, events.CommandTypeSetBrightness, nil, new(speed), nil, nil, nil)
 		})
 	}
 
@@ -331,9 +331,9 @@ func (hm *HAPManager) createLightbulb(info accessory.Info, device devices.Device
 
 		hm.commands <- devices.CommandEvent{
 			DeviceID: deviceID,
-			On:       devices.Ptr(on),
+			On:       new(on),
 		}
-		hm.publishCommand(deviceID, events.CommandTypeSetPower, devices.Ptr(on), nil, nil, nil, nil)
+		hm.publishCommand(deviceID, events.CommandTypeSetPower, new(on), nil, nil, nil, nil)
 	})
 
 	// Add brightness if feature enabled
@@ -349,9 +349,9 @@ func (hm *HAPManager) createLightbulb(info accessory.Info, device devices.Device
 
 			hm.commands <- devices.CommandEvent{
 				DeviceID:   deviceID,
-				Brightness: devices.Ptr(value),
+				Brightness: new(value),
 			}
-			hm.publishCommand(deviceID, events.CommandTypeSetBrightness, nil, devices.Ptr(value), nil, nil, nil)
+			hm.publishCommand(deviceID, events.CommandTypeSetBrightness, nil, new(value), nil, nil, nil)
 		})
 	}
 
@@ -373,10 +373,10 @@ func (hm *HAPManager) createLightbulb(info accessory.Info, device devices.Device
 			currentSat := saturation.Value()
 			hm.commands <- devices.CommandEvent{
 				DeviceID:   deviceID,
-				Hue:        devices.Ptr(value),
-				Saturation: devices.Ptr(currentSat),
+				Hue:        new(value),
+				Saturation: new(currentSat),
 			}
-			hm.publishCommand(deviceID, events.CommandTypeSetColor, nil, nil, devices.Ptr(value), devices.Ptr(currentSat), nil)
+			hm.publishCommand(deviceID, events.CommandTypeSetColor, nil, nil, new(value), new(currentSat), nil)
 		})
 
 		saturation.OnValueRemoteUpdate(func(value float64) {
@@ -388,10 +388,10 @@ func (hm *HAPManager) createLightbulb(info accessory.Info, device devices.Device
 			currentHue := hue.Value()
 			hm.commands <- devices.CommandEvent{
 				DeviceID:   deviceID,
-				Hue:        devices.Ptr(currentHue),
-				Saturation: devices.Ptr(value),
+				Hue:        new(currentHue),
+				Saturation: new(value),
 			}
-			hm.publishCommand(deviceID, events.CommandTypeSetColor, nil, nil, devices.Ptr(currentHue), devices.Ptr(value), nil)
+			hm.publishCommand(deviceID, events.CommandTypeSetColor, nil, nil, new(currentHue), new(value), nil)
 		})
 	}
 
@@ -408,9 +408,9 @@ func (hm *HAPManager) createLightbulb(info accessory.Info, device devices.Device
 
 			hm.commands <- devices.CommandEvent{
 				DeviceID:  deviceID,
-				ColorTemp: devices.Ptr(value),
+				ColorTemp: new(value),
 			}
-			hm.publishCommand(deviceID, events.CommandTypeSetColorTemp, nil, nil, nil, nil, devices.Ptr(value))
+			hm.publishCommand(deviceID, events.CommandTypeSetColorTemp, nil, nil, nil, nil, new(value))
 		})
 	}
 
@@ -430,9 +430,9 @@ func (hm *HAPManager) createOutlet(info accessory.Info, device devices.Device, a
 
 		hm.commands <- devices.CommandEvent{
 			DeviceID: deviceID,
-			On:       devices.Ptr(on),
+			On:       new(on),
 		}
-		hm.publishCommand(deviceID, events.CommandTypeSetPower, devices.Ptr(on), nil, nil, nil, nil)
+		hm.publishCommand(deviceID, events.CommandTypeSetPower, new(on), nil, nil, nil, nil)
 	})
 
 	return outlet.A

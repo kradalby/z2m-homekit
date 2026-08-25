@@ -87,29 +87,6 @@ func TestClampColorTemp(t *testing.T) {
 	}
 }
 
-func TestPtr(t *testing.T) {
-	// Test int pointer
-	intVal := 42
-	intPtr := Ptr(intVal)
-	if *intPtr != intVal {
-		t.Errorf("Ptr(%d) = %d, want %d", intVal, *intPtr, intVal)
-	}
-
-	// Test string pointer
-	strVal := "hello"
-	strPtr := Ptr(strVal)
-	if *strPtr != strVal {
-		t.Errorf("Ptr(%q) = %q, want %q", strVal, *strPtr, strVal)
-	}
-
-	// Test bool pointer
-	boolVal := true
-	boolPtr := Ptr(boolVal)
-	if *boolPtr != boolVal {
-		t.Errorf("Ptr(%v) = %v, want %v", boolVal, *boolPtr, boolVal)
-	}
-}
-
 func abs(x int) int {
 	if x < 0 {
 		return -x

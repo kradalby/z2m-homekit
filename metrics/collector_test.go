@@ -47,8 +47,7 @@ func TestNewCollectorRequiresBus(t *testing.T) {
 }
 
 func TestNewCollectorSuccess(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	bus, err := events.New(testLogger())
 	if err != nil {
@@ -69,8 +68,7 @@ func TestNewCollectorSuccess(t *testing.T) {
 }
 
 func TestCollectorObservesStatusEvents(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	bus, err := events.New(testLogger())
 	if err != nil {
@@ -121,8 +119,7 @@ func TestCollectorObservesStatusEvents(t *testing.T) {
 }
 
 func TestCollectorObservesStateEvents(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	bus, err := events.New(testLogger())
 	if err != nil {

@@ -18,10 +18,10 @@ type StateUpdateEvent struct {
 	Occupancy   *bool    `json:"occupancy,omitempty"`
 	Illuminance *int     `json:"illuminance,omitempty"`
 	Pressure    *float64 `json:"pressure,omitempty"`
-	Contact     *bool    `json:"contact,omitempty"`     // true = closed, false = open
-	WaterLeak   *bool    `json:"water_leak,omitempty"`  // true = leak detected
-	Smoke       *bool    `json:"smoke,omitempty"`       // true = smoke detected
-	Tamper      *bool    `json:"tamper,omitempty"`      // true = tampered
+	Contact     *bool    `json:"contact,omitempty"`    // true = closed, false = open
+	WaterLeak   *bool    `json:"water_leak,omitempty"` // true = leak detected
+	Smoke       *bool    `json:"smoke,omitempty"`      // true = smoke detected
+	Tamper      *bool    `json:"tamper,omitempty"`     // true = tampered
 
 	// Light values
 	On         *bool    `json:"on,omitempty"`

@@ -79,10 +79,9 @@ func NewCollector(ctx context.Context, logger *slog.Logger, bus *events.Bus, reg
 		cancel:         cancel,
 	}
 
-	c.workers.Add(3)
-	go c.consumeStatuses()
-	go c.consumeCommands()
-	go c.consumeStates()
+	c.workers.Go(c.consumeStatuses)
+	c.workers.Go(c.consumeCommands)
+	c.workers.Go(c.consumeStates)
 
 	logger.Info("metrics collector started")
 
@@ -108,7 +107,6 @@ func (c *Collector) Close() {
 }
 
 func (c *Collector) consumeStatuses() {
-	defer c.workers.Done()
 	for {
 		select {
 		case evt := <-c.statusSub.Events():
@@ -120,7 +118,6 @@ func (c *Collector) consumeStatuses() {
 }
 
 func (c *Collector) consumeCommands() {
-	defer c.workers.Done()
 	for {
 		select {
 		case evt := <-c.commandSub.Events():
@@ -132,7 +129,6 @@ func (c *Collector) consumeCommands() {
 }
 
 func (c *Collector) consumeStates() {
-	defer c.workers.Done()
 	for {
 		select {
 		case evt := <-c.stateSub.Events():

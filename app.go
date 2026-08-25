@@ -282,11 +282,9 @@ func Main() {
 	fmt.Printf("HomeKit bridge ready - pair with PIN: %s\n\n", cfg.HAPPin)
 
 	qrConfig := homekitqr.QRCodeConfig{
-		SetupURIConfig: homekitqr.SetupURIConfig{
-			PairingCode: cfg.HAPPin,
-			SetupID:     "Z2MH",
-			Category:    homekitqr.CategoryBridge,
-		},
+		PairingCode: cfg.HAPPin,
+		SetupID:     "Z2MH",
+		Category:    homekitqr.CategoryBridge,
 	}
 
 	qr, err := homekitqr.GenerateQRTerminal(qrConfig)

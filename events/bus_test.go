@@ -130,3 +130,36 @@ func TestStateUpdateEventEquals(t *testing.T) {
 		})
 	}
 }
+
+// Publishers used to be created per event, and eventbus.Publish panics when
+// handed a closed client. Shutdown closes the clients while HAP and web are
+// still emitting their final connection-status events, so publishing after
+// Close must be an inert no-op rather than a panic.
+func TestPublishAfterCloseDoesNotPanic(t *testing.T) {
+	bus, err := New(testLogger())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	client, err := bus.Client(ClientHAP)
+	if err != nil {
+		t.Fatalf("Client: %v", err)
+	}
+
+	if err := bus.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("publishing after Close panicked: %v", r)
+		}
+	}()
+
+	bus.PublishConnectionStatus(client, ConnectionStatusEvent{
+		Component: "hap",
+		Status:    ConnectionStatusDisconnected,
+	})
+	bus.PublishCommand(client, CommandEvent{DeviceID: "d1", CommandType: CommandTypeSetPower})
+	bus.PublishStateUpdate(client, StateUpdateEvent{DeviceID: "d1"})
+}

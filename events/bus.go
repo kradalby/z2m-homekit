@@ -20,10 +20,24 @@ const (
 	ClientMetrics       ClientName = "metrics"
 )
 
+// clientPublishers holds the long-lived publishers for one client.
+//
+// eventbus.Publish panics when handed a closed client, so a publisher must not
+// be created per event: shutdown closes the clients while HAP and web are still
+// emitting their final connection-status events. Creating them once up front
+// turns that race into a no-op -- publishing on a closed Publisher is defined
+// to do nothing -- and keeps the hot state path off the bus's publisher set.
+type clientPublishers struct {
+	state  *eventbus.Publisher[StateUpdateEvent]
+	cmd    *eventbus.Publisher[CommandEvent]
+	status *eventbus.Publisher[ConnectionStatusEvent]
+}
+
 // Bus wraps tailscale's eventbus and provides helpers for publishing state updates.
 type Bus struct {
 	bus     *eventbus.Bus
 	clients map[ClientName]*eventbus.Client
+	pubs    map[*eventbus.Client]clientPublishers
 	logger  *slog.Logger
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -44,6 +58,7 @@ func New(logger *slog.Logger) (*Bus, error) {
 	b := &Bus{
 		bus:        eventbus.New(),
 		clients:    make(map[ClientName]*eventbus.Client),
+		pubs:       make(map[*eventbus.Client]clientPublishers),
 		logger:     logger,
 		ctx:        ctx,
 		cancel:     cancel,
@@ -57,7 +72,13 @@ func New(logger *slog.Logger) (*Bus, error) {
 		ClientMQTT,
 		ClientMetrics,
 	} {
-		b.clients[name] = b.bus.Client(string(name))
+		client := b.bus.Client(string(name))
+		b.clients[name] = client
+		b.pubs[client] = clientPublishers{
+			state:  eventbus.Publish[StateUpdateEvent](client),
+			cmd:    eventbus.Publish[CommandEvent](client),
+			status: eventbus.Publish[ConnectionStatusEvent](client),
+		}
 	}
 
 	logger.Info("eventbus initialized",
@@ -80,6 +101,17 @@ func (b *Bus) Client(name ClientName) (*eventbus.Client, error) {
 	return client, nil
 }
 
+// publishers returns the long-lived publishers for client, or false once the
+// bus has been shut down.
+func (b *Bus) publishers(client *eventbus.Client) (clientPublishers, bool) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	p, ok := b.pubs[client]
+
+	return p, ok
+}
+
 // PublishStateUpdate emits a deduplicated state update event for SSE consumers.
 func (b *Bus) PublishStateUpdate(client *eventbus.Client, event StateUpdateEvent) {
 	b.stateMu.Lock()
@@ -99,9 +131,9 @@ func (b *Bus) PublishStateUpdate(client *eventbus.Client, event StateUpdateEvent
 		slog.String("source", event.Source),
 	)
 
-	publisher := eventbus.Publish[StateUpdateEvent](client)
-	defer publisher.Close()
-	publisher.Publish(event)
+	if p, ok := b.publishers(client); ok {
+		p.state.Publish(event)
+	}
 
 	b.lastStates[event.DeviceID] = event
 }
@@ -114,9 +146,9 @@ func (b *Bus) PublishCommand(client *eventbus.Client, event CommandEvent) {
 		slog.String("command_type", string(event.CommandType)),
 	)
 
-	publisher := eventbus.Publish[CommandEvent](client)
-	defer publisher.Close()
-	publisher.Publish(event)
+	if p, ok := b.publishers(client); ok {
+		p.cmd.Publish(event)
+	}
 }
 
 // PublishConnectionStatus emits lifecycle updates for components (web, hap, mqtt, etc.).
@@ -126,9 +158,9 @@ func (b *Bus) PublishConnectionStatus(client *eventbus.Client, event ConnectionS
 		slog.String("status", string(event.Status)),
 	)
 
-	publisher := eventbus.Publish[ConnectionStatusEvent](client)
-	defer publisher.Close()
-	publisher.Publish(event)
+	if p, ok := b.publishers(client); ok {
+		p.status.Publish(event)
+	}
 }
 
 // Close shuts down the event bus and releases clients.
@@ -138,10 +170,12 @@ func (b *Bus) Close() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	for name, client := range b.clients {
-		client.Close()
-		delete(b.clients, name)
-	}
+	// eventbus.Bus.Close stops the bus's router goroutine and closes every
+	// client it handed out. Closing only the clients, as this used to, leaks
+	// that goroutine for the lifetime of the process (and once per test).
+	b.bus.Close()
+	clear(b.clients)
+	clear(b.pubs)
 
 	b.logger.Info("eventbus shut down")
 	return nil

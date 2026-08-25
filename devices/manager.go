@@ -147,6 +147,41 @@ func (dm *Manager) SetBrightness(ctx context.Context, deviceID string, brightnes
 	return nil
 }
 
+// SetFanSpeed sets the speed of a fan via MQTT.
+//
+// Z2M expects fan speed as a 0-100 percentage under "fan_speed" -- the same
+// scale HomeKit's RotationSpeed uses -- so unlike brightness there is no
+// rescaling to do here.
+func (dm *Manager) SetFanSpeed(ctx context.Context, deviceID string, speed int) error {
+	info, exists := dm.devices[deviceID]
+	if !exists {
+		return fmt.Errorf("device %s not found", deviceID)
+	}
+
+	speed = min(max(speed, 0), 100)
+
+	topic := fmt.Sprintf("zigbee2mqtt/%s/set", info.Config.Topic)
+	payload := map[string]any{
+		"fan_speed": speed,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal command: %w", err)
+	}
+
+	dm.logger.Info("Sending fan speed command",
+		"device_id", deviceID,
+		"topic", topic,
+		"speed", speed,
+	)
+
+	if err := dm.mqttServer.Publish(topic, data, false, 0); err != nil {
+		return fmt.Errorf("failed to publish fan speed command: %w", err)
+	}
+
+	return nil
+}
+
 // SetColor sets the color of a light via MQTT.
 func (dm *Manager) SetColor(ctx context.Context, deviceID string, hue, saturation float64) error {
 	info, exists := dm.devices[deviceID]
@@ -233,6 +268,14 @@ func (dm *Manager) processCommand(ctx context.Context, cmd CommandEvent) {
 	if cmd.Brightness != nil {
 		if err := dm.SetBrightness(ctx, cmd.DeviceID, *cmd.Brightness); err != nil {
 			dm.logger.Error("Failed to process brightness command",
+				"device_id", cmd.DeviceID,
+				"error", err,
+			)
+		}
+	}
+	if cmd.FanSpeed != nil {
+		if err := dm.SetFanSpeed(ctx, cmd.DeviceID, *cmd.FanSpeed); err != nil {
+			dm.logger.Error("Failed to process fan speed command",
 				"device_id", cmd.DeviceID,
 				"error", err,
 			)

@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kradalby/z2m-homekit/events"
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/kradalby/z2m-homekit/events"
 )
 
 func testLogger() *slog.Logger {

@@ -175,30 +175,28 @@ func Main() {
 		Status:    events.ConnectionStatusConnecting,
 	})
 
-	go func() {
-		slog.Info("Starting MQTT broker", "addr", cfg.MQTTAddrPort().String())
+	// mochi-mqtt's Serve starts the listeners and the event loop in their own
+	// goroutines and returns immediately; it does not block for the lifetime of
+	// the broker. Calling it inline keeps the status reporting honest: a nil
+	// return means the broker is up, and "disconnected" is published by the
+	// shutdown path below rather than a few microseconds after startup.
+	slog.Info("Starting MQTT broker", "addr", cfg.MQTTAddrPort().String())
+	if err := mqttServer.Serve(); err != nil {
 		eventBus.PublishConnectionStatus(mqttClient, events.ConnectionStatusEvent{
 			Timestamp: time.Now(),
 			Component: mqttComponent,
-			Status:    events.ConnectionStatusConnected,
+			Status:    events.ConnectionStatusFailed,
+			Error:     err.Error(),
 		})
-		if err := mqttServer.Serve(); err != nil {
-			eventBus.PublishConnectionStatus(mqttClient, events.ConnectionStatusEvent{
-				Timestamp: time.Now(),
-				Component: mqttComponent,
-				Status:    events.ConnectionStatusFailed,
-				Error:     err.Error(),
-			})
-			slog.Error("MQTT server error", "error", err)
-			return
-		}
-		eventBus.PublishConnectionStatus(mqttClient, events.ConnectionStatusEvent{
-			Timestamp: time.Now(),
-			Component: mqttComponent,
-			Status:    events.ConnectionStatusDisconnected,
-		})
-	}()
+		slog.Error("Failed to start MQTT broker", "error", err)
+		os.Exit(1)
+	}
 
+	eventBus.PublishConnectionStatus(mqttClient, events.ConnectionStatusEvent{
+		Timestamp: time.Now(),
+		Component: mqttComponent,
+		Status:    events.ConnectionStatusConnected,
+	})
 	slog.Info("MQTT broker started", "addr", cfg.MQTTAddrPort().String())
 
 	go deviceManager.ProcessCommands(ctx)

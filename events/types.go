@@ -49,6 +49,7 @@ const (
 	CommandTypeSetBrightness CommandType = "set_brightness"
 	CommandTypeSetColor      CommandType = "set_color"
 	CommandTypeSetColorTemp  CommandType = "set_color_temp"
+	CommandTypeSetFanSpeed   CommandType = "set_fan_speed"
 )
 
 // CommandEvent captures requested control actions for a device.
@@ -61,6 +62,7 @@ type CommandEvent struct {
 	// Command payloads (only one set per event)
 	On         *bool    `json:"on,omitempty"`
 	Brightness *int     `json:"brightness,omitempty"` // 0-100 (HAP scale)
+	FanSpeed   *int     `json:"fan_speed,omitempty"`  // 0-100 (percentage)
 	Hue        *float64 `json:"hue,omitempty"`
 	Saturation *float64 `json:"saturation,omitempty"`
 	ColorTemp  *int     `json:"color_temp,omitempty"`

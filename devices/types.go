@@ -181,6 +181,7 @@ type CommandEvent struct {
 	DeviceID   string
 	On         *bool
 	Brightness *int     // 0-100 (HAP scale, convert to 0-254 for Z2M)
+	FanSpeed   *int     // 0-100 (percentage, sent to Z2M as-is)
 	Hue        *float64 // 0-360
 	Saturation *float64 // 0-100
 	ColorTemp  *int     // mireds

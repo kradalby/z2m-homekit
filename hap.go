@@ -65,6 +65,7 @@ type HAPManager struct {
 	logger          *slog.Logger
 
 	// Runtime info
+	ctx    context.Context
 	server *hap.Server
 	store  hap.Store
 
@@ -106,6 +107,7 @@ func NewHAPManager(
 		eventBus:        bus,
 		eventClient:     client,
 		logger:          logger,
+		ctx:             context.Background(),
 	}
 
 	// Create accessory for each device
@@ -281,14 +283,10 @@ func (hm *HAPManager) createFan(info accessory.Info, device devices.Device, accI
 	// Set up On handler
 	fan.On.OnValueRemoteUpdate(func(on bool) {
 		hm.logger.Info("HomeKit fan power command received", "device_id", deviceID, "on", on)
-		hm.incomingCommands.Add(1)
-		hm.lastActivity.Store(time.Now().Unix())
-
-		hm.commands <- devices.CommandEvent{
+		hm.dispatch(events.CommandTypeSetPower, devices.CommandEvent{
 			DeviceID: deviceID,
 			On:       new(on),
-		}
-		hm.publishCommand(deviceID, events.CommandTypeSetPower, new(on), nil, nil, nil, nil)
+		})
 	})
 
 	// Add rotation speed if speed feature enabled
@@ -300,14 +298,10 @@ func (hm *HAPManager) createFan(info accessory.Info, device devices.Device, accI
 		rotationSpeed.OnValueRemoteUpdate(func(value float64) {
 			speed := int(value)
 			hm.logger.Info("HomeKit fan speed command received", "device_id", deviceID, "speed", speed)
-			hm.incomingCommands.Add(1)
-			hm.lastActivity.Store(time.Now().Unix())
-
-			hm.commands <- devices.CommandEvent{
-				DeviceID:   deviceID,
-				Brightness: new(speed), // Reuse brightness field for fan speed
-			}
-			hm.publishCommand(deviceID, events.CommandTypeSetBrightness, nil, new(speed), nil, nil, nil)
+			hm.dispatch(events.CommandTypeSetFanSpeed, devices.CommandEvent{
+				DeviceID: deviceID,
+				FanSpeed: new(speed),
+			})
 		})
 	}
 
@@ -326,14 +320,10 @@ func (hm *HAPManager) createLightbulb(info accessory.Info, device devices.Device
 	// Set up On handler
 	lightbulb.On.OnValueRemoteUpdate(func(on bool) {
 		hm.logger.Info("HomeKit power command received", "device_id", deviceID, "on", on)
-		hm.incomingCommands.Add(1)
-		hm.lastActivity.Store(time.Now().Unix())
-
-		hm.commands <- devices.CommandEvent{
+		hm.dispatch(events.CommandTypeSetPower, devices.CommandEvent{
 			DeviceID: deviceID,
 			On:       new(on),
-		}
-		hm.publishCommand(deviceID, events.CommandTypeSetPower, new(on), nil, nil, nil, nil)
+		})
 	})
 
 	// Add brightness if feature enabled
@@ -344,14 +334,10 @@ func (hm *HAPManager) createLightbulb(info accessory.Info, device devices.Device
 
 		brightness.OnValueRemoteUpdate(func(value int) {
 			hm.logger.Info("HomeKit brightness command received", "device_id", deviceID, "brightness", value)
-			hm.incomingCommands.Add(1)
-			hm.lastActivity.Store(time.Now().Unix())
-
-			hm.commands <- devices.CommandEvent{
+			hm.dispatch(events.CommandTypeSetBrightness, devices.CommandEvent{
 				DeviceID:   deviceID,
 				Brightness: new(value),
-			}
-			hm.publishCommand(deviceID, events.CommandTypeSetBrightness, nil, new(value), nil, nil, nil)
+			})
 		})
 	}
 
@@ -366,32 +352,26 @@ func (hm *HAPManager) createLightbulb(info accessory.Info, device devices.Device
 
 		hue.OnValueRemoteUpdate(func(value float64) {
 			hm.logger.Info("HomeKit hue command received", "device_id", deviceID, "hue", value)
-			hm.incomingCommands.Add(1)
-			hm.lastActivity.Store(time.Now().Unix())
 
 			// Get current saturation
 			currentSat := saturation.Value()
-			hm.commands <- devices.CommandEvent{
+			hm.dispatch(events.CommandTypeSetColor, devices.CommandEvent{
 				DeviceID:   deviceID,
 				Hue:        new(value),
 				Saturation: new(currentSat),
-			}
-			hm.publishCommand(deviceID, events.CommandTypeSetColor, nil, nil, new(value), new(currentSat), nil)
+			})
 		})
 
 		saturation.OnValueRemoteUpdate(func(value float64) {
 			hm.logger.Info("HomeKit saturation command received", "device_id", deviceID, "saturation", value)
-			hm.incomingCommands.Add(1)
-			hm.lastActivity.Store(time.Now().Unix())
 
 			// Get current hue
 			currentHue := hue.Value()
-			hm.commands <- devices.CommandEvent{
+			hm.dispatch(events.CommandTypeSetColor, devices.CommandEvent{
 				DeviceID:   deviceID,
 				Hue:        new(currentHue),
 				Saturation: new(value),
-			}
-			hm.publishCommand(deviceID, events.CommandTypeSetColor, nil, nil, new(currentHue), new(value), nil)
+			})
 		})
 	}
 
@@ -403,14 +383,10 @@ func (hm *HAPManager) createLightbulb(info accessory.Info, device devices.Device
 
 		colorTemp.OnValueRemoteUpdate(func(value int) {
 			hm.logger.Info("HomeKit color temp command received", "device_id", deviceID, "color_temp", value)
-			hm.incomingCommands.Add(1)
-			hm.lastActivity.Store(time.Now().Unix())
-
-			hm.commands <- devices.CommandEvent{
+			hm.dispatch(events.CommandTypeSetColorTemp, devices.CommandEvent{
 				DeviceID:  deviceID,
 				ColorTemp: new(value),
-			}
-			hm.publishCommand(deviceID, events.CommandTypeSetColorTemp, nil, nil, nil, nil, new(value))
+			})
 		})
 	}
 
@@ -425,14 +401,10 @@ func (hm *HAPManager) createOutlet(info accessory.Info, device devices.Device, a
 
 	outlet.Outlet.On.OnValueRemoteUpdate(func(on bool) {
 		hm.logger.Info("HomeKit power command received", "device_id", deviceID, "on", on)
-		hm.incomingCommands.Add(1)
-		hm.lastActivity.Store(time.Now().Unix())
-
-		hm.commands <- devices.CommandEvent{
+		hm.dispatch(events.CommandTypeSetPower, devices.CommandEvent{
 			DeviceID: deviceID,
 			On:       new(on),
-		}
-		hm.publishCommand(deviceID, events.CommandTypeSetPower, new(on), nil, nil, nil, nil)
+		})
 	})
 
 	return outlet.A
@@ -565,6 +537,7 @@ func (hm *HAPManager) UpdateState(event events.StateUpdateEvent) {
 
 // Start begins processing state changes.
 func (hm *HAPManager) Start(ctx context.Context) {
+	hm.ctx = ctx
 	go hm.ProcessStateChanges(ctx)
 }
 
@@ -593,14 +566,27 @@ func (hm *HAPManager) ProcessStateChanges(ctx context.Context) {
 	}
 }
 
-func (hm *HAPManager) publishCommand(
-	deviceID string,
-	cmdType events.CommandType,
-	on *bool,
-	brightness *int,
-	hue, saturation *float64,
-	colorTemp *int,
-) {
+// dispatch records a HomeKit-originated command, hands it to the device
+// manager and mirrors it onto the event bus.
+//
+// The send is guarded by hm.ctx: devices.Manager.ProcessCommands stops draining
+// hm.commands as soon as its context is cancelled, so a bare send would wedge
+// the HAP connection goroutine that ran this callback for good.
+func (hm *HAPManager) dispatch(cmdType events.CommandType, cmd devices.CommandEvent) {
+	hm.incomingCommands.Add(1)
+	hm.lastActivity.Store(time.Now().Unix())
+
+	select {
+	case hm.commands <- cmd:
+	case <-hm.ctx.Done():
+		hm.logger.Warn("Dropping HomeKit command, shutting down",
+			"device_id", cmd.DeviceID,
+			"command_type", string(cmdType),
+		)
+
+		return
+	}
+
 	if hm.eventBus == nil || hm.eventClient == nil {
 		return
 	}
@@ -608,13 +594,14 @@ func (hm *HAPManager) publishCommand(
 	hm.eventBus.PublishCommand(hm.eventClient, events.CommandEvent{
 		Timestamp:   time.Now(),
 		Source:      "homekit",
-		DeviceID:    deviceID,
+		DeviceID:    cmd.DeviceID,
 		CommandType: cmdType,
-		On:          on,
-		Brightness:  brightness,
-		Hue:         hue,
-		Saturation:  saturation,
-		ColorTemp:   colorTemp,
+		On:          cmd.On,
+		Brightness:  cmd.Brightness,
+		FanSpeed:    cmd.FanSpeed,
+		Hue:         cmd.Hue,
+		Saturation:  cmd.Saturation,
+		ColorTemp:   cmd.ColorTemp,
 	})
 }
 

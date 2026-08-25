@@ -8,9 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kradalby/z2m-homekit/events"
 	mqtt "github.com/mochi-mqtt/server/v2"
 	"tailscale.com/util/eventbus"
+
+	"github.com/kradalby/z2m-homekit/events"
 )
 
 // Manager manages all Zigbee device state.

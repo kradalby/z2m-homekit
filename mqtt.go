@@ -7,10 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kradalby/z2m-homekit/devices"
 	mqtt "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/packets"
 	"tailscale.com/util/eventbus"
+
+	"github.com/kradalby/z2m-homekit/devices"
 )
 
 // MQTTHook handles MQTT messages from zigbee2mqtt.

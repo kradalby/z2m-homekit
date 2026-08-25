@@ -15,6 +15,7 @@ import (
 
 	homekitqr "github.com/kradalby/homekit-qr"
 	"github.com/kradalby/kra/web"
+
 	appconfig "github.com/kradalby/z2m-homekit/config"
 	"github.com/kradalby/z2m-homekit/devices"
 	"github.com/kradalby/z2m-homekit/events"

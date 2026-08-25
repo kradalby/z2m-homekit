@@ -11,9 +11,10 @@ import (
 	"github.com/brutella/hap/accessory"
 	"github.com/brutella/hap/characteristic"
 	"github.com/brutella/hap/service"
+	"tailscale.com/util/eventbus"
+
 	"github.com/kradalby/z2m-homekit/devices"
 	"github.com/kradalby/z2m-homekit/events"
-	"tailscale.com/util/eventbus"
 )
 
 func hashString(s string) uint64 {

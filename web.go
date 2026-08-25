@@ -17,9 +17,10 @@ import (
 	"github.com/chasefleming/elem-go"
 	"github.com/chasefleming/elem-go/attrs"
 	"github.com/kradalby/kra/web"
+	"tailscale.com/util/eventbus"
+
 	"github.com/kradalby/z2m-homekit/devices"
 	"github.com/kradalby/z2m-homekit/events"
-	"tailscale.com/util/eventbus"
 )
 
 //go:embed assets/style.css

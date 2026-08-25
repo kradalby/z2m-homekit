@@ -48,6 +48,7 @@ type WebServer struct {
 	deviceProvider   deviceStateProvider
 	controller       DeviceController
 	eventLog         []string
+	eventLogMu       sync.Mutex
 	eventBus         *events.Bus
 	client           *eventbus.Client
 	stateSubscriber  *eventbus.Subscriber[events.StateUpdateEvent]
@@ -91,12 +92,28 @@ func NewWebServer(logger *slog.Logger, deviceProvider deviceStateProvider, contr
 	}
 }
 
-// LogEvent adds an event to the log
+// LogEvent adds an event to the log. Called from concurrent HTTP handlers.
 func (ws *WebServer) LogEvent(event string) {
+	ws.eventLogMu.Lock()
+	defer ws.eventLogMu.Unlock()
+
 	ws.eventLog = append(ws.eventLog, fmt.Sprintf("%s: %s", time.Now().Format("15:04:05"), event))
 	if len(ws.eventLog) > 100 {
 		ws.eventLog = ws.eventLog[1:]
 	}
+}
+
+// recentEvents returns up to n log entries, newest first.
+func (ws *WebServer) recentEvents(n int) []string {
+	ws.eventLogMu.Lock()
+	defer ws.eventLogMu.Unlock()
+
+	out := make([]string, 0, min(n, len(ws.eventLog)))
+	for i := len(ws.eventLog) - 1; i >= 0 && len(out) < n; i-- {
+		out = append(out, ws.eventLog[i])
+	}
+
+	return out
 }
 
 func (ws *WebServer) Start(ctx context.Context) {
@@ -128,11 +145,12 @@ func (ws *WebServer) Close() {
 	ws.stateSubscriber.Close()
 	ws.statusSubscriber.Close()
 
+	// Each SSE channel is owned by the HandleSSE goroutine that created it, and
+	// that goroutine closes it on the way out. Closing them here as well races
+	// those defers during shutdown and panics with "close of closed channel";
+	// dropping the registrations is enough to stop any further broadcast.
 	ws.sseClientsMu.Lock()
-	for client := range ws.sseClients {
-		close(client)
-	}
-	ws.sseClients = make(map[chan events.StateUpdateEvent]struct{})
+	clear(ws.sseClients)
 	ws.sseClientsMu.Unlock()
 }
 
@@ -794,8 +812,8 @@ func (ws *WebServer) HandleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var eventElements []elem.Node
-	for i := len(ws.eventLog) - 1; i >= 0 && i >= len(ws.eventLog)-20; i-- {
-		eventElements = append(eventElements, elem.Div(attrs.Props{attrs.Class: "event"}, elem.Text(ws.eventLog[i])))
+	for _, entry := range ws.recentEvents(20) {
+		eventElements = append(eventElements, elem.Div(attrs.Props{attrs.Class: "event"}, elem.Text(entry)))
 	}
 
 	var homekitSection elem.Node

@@ -123,9 +123,13 @@
           GOTOOLCHAIN = "local";
         };
 
-        apps.default = flake-utils.lib.mkApp {
-          drv = z2m-homekit;
-        };
+        apps.default =
+          flake-utils.lib.mkApp {
+            drv = z2m-homekit;
+          }
+          // {
+            meta.description = z2m-homekit.meta.description;
+          };
       }
     )
     // {

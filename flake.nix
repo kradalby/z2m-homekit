@@ -54,7 +54,7 @@
           inherit pkgs version;
           root = ./.;
           pname = "z2m-homekit";
-          vendorHash = "sha256-ehRUYJ0R2dK7+t+VUZb5cyp776chorx6i61aTiNsdBM=";
+          vendorHash = "sha256-7ORUMhZEbDbb575X+p+YXqxYeHG+oo6qDDDDu3w57C8=";
           goPkg = pkgs.go_latest;
           subPackages = [ "cmd/z2m-homekit" ];
           embedDirs = [ ./assets ];

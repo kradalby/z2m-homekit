@@ -248,7 +248,7 @@ func (ws *WebServer) renderPage(title string, content elem.Node) string {
 			elem.Meta(attrs.Props{attrs.Name: "viewport", attrs.Content: "width=device-width, initial-scale=1"}),
 			elem.Title(attrs.Props{}, elem.Text(title)),
 			elem.Script(attrs.Props{
-				attrs.Src: "https://unpkg.com/htmx.org@2.0.4",
+				attrs.Src: "https://unpkg.com/htmx.org@2.0.11",
 			}),
 			elem.Style(attrs.Props{}, elem.Text(cssContent)),
 			elem.Script(attrs.Props{}, elem.Raw(jsContent)),

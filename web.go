@@ -285,9 +285,7 @@ func (ws *WebServer) renderDeviceCard(deviceID string, info devices.Device, stat
 			elem.Div(attrs.Props{attrs.Class: "device-icon"}, elem.Text(icon)),
 			elem.Div(attrs.Props{attrs.Class: "device-info"},
 				elem.Div(attrs.Props{attrs.Class: "device-name"}, elem.Text(info.Name)),
-				elem.Div(attrs.Props{attrs.Class: "device-status"},
-					elem.Div(attrs.Props{"data-role": "last-updated"}, elem.Text(fmt.Sprintf("Last updated: %s", state.LastUpdated.Format("15:04:05")))),
-				),
+				elem.Div(attrs.Props{attrs.Class: "device-status"}),
 				elem.Div(attrs.Props{attrs.Class: "connection-status"},
 					elem.Span(attrs.Props{"data-role": "connection-indicator", attrs.Class: "connection-indicator " + connectionIndicator}),
 					elem.Span(attrs.Props{"data-role": "connection-text"}, elem.Text(connectionText)),
@@ -353,45 +351,45 @@ func (ws *WebServer) getDeviceIcon(deviceType devices.DeviceType) string {
 func (ws *WebServer) renderClimateSensor(info devices.Device, state devices.State) elem.Node {
 	var items []elem.Node
 
-	if info.Features.Temperature && state.Temperature != nil {
+	if info.Features.Temperature && state.Temperature.IsSet() {
 		items = append(items,
 			elem.Div(attrs.Props{attrs.Class: "sensor-value-item"},
 				elem.Span(attrs.Props{attrs.Class: "sensor-label"}, elem.Text("Temperature:")),
 				elem.Span(attrs.Props{attrs.Class: "sensor-value", "data-role": "temperature-value"},
-					elem.Text(fmt.Sprintf("%.1f °C", *state.Temperature)),
+					elem.Text(fmt.Sprintf("%.1f °C", state.Temperature.Get())),
 				),
 			),
 		)
 	}
 
-	if info.Features.Humidity && state.Humidity != nil {
+	if info.Features.Humidity && state.Humidity.IsSet() {
 		items = append(items,
 			elem.Div(attrs.Props{attrs.Class: "sensor-value-item"},
 				elem.Span(attrs.Props{attrs.Class: "sensor-label"}, elem.Text("Humidity:")),
 				elem.Span(attrs.Props{attrs.Class: "sensor-value", "data-role": "humidity-value"},
-					elem.Text(fmt.Sprintf("%.1f %%", *state.Humidity)),
+					elem.Text(fmt.Sprintf("%.1f %%", state.Humidity.Get())),
 				),
 			),
 		)
 	}
 
-	if info.Features.Battery && state.Battery != nil {
+	if info.Features.Battery && state.Battery.IsSet() {
 		items = append(items,
 			elem.Div(attrs.Props{attrs.Class: "sensor-value-item"},
 				elem.Span(attrs.Props{attrs.Class: "sensor-label"}, elem.Text("Battery:")),
 				elem.Span(attrs.Props{attrs.Class: "sensor-value", "data-role": "battery-value"},
-					elem.Text(fmt.Sprintf("%d %%", *state.Battery)),
+					elem.Text(fmt.Sprintf("%d %%", state.Battery.Get())),
 				),
 			),
 		)
 	}
 
-	if info.Features.Pressure && state.Pressure != nil {
+	if info.Features.Pressure && state.Pressure.IsSet() {
 		items = append(items,
 			elem.Div(attrs.Props{attrs.Class: "sensor-value-item"},
 				elem.Span(attrs.Props{attrs.Class: "sensor-label"}, elem.Text("Pressure:")),
 				elem.Span(attrs.Props{attrs.Class: "sensor-value", "data-role": "pressure-value"},
-					elem.Text(fmt.Sprintf("%.1f hPa", *state.Pressure)),
+					elem.Text(fmt.Sprintf("%.1f hPa", state.Pressure.Get())),
 				),
 			),
 		)
@@ -404,8 +402,8 @@ func (ws *WebServer) renderOccupancySensor(info devices.Device, state devices.St
 	var items []elem.Node
 
 	occupancyText := "Unknown"
-	if state.Occupancy != nil {
-		if *state.Occupancy {
+	if state.Occupancy.IsSet() {
+		if state.Occupancy.Get() {
 			occupancyText = "Detected"
 		} else {
 			occupancyText = "Clear"
@@ -421,23 +419,23 @@ func (ws *WebServer) renderOccupancySensor(info devices.Device, state devices.St
 		),
 	)
 
-	if info.Features.Battery && state.Battery != nil {
+	if info.Features.Battery && state.Battery.IsSet() {
 		items = append(items,
 			elem.Div(attrs.Props{attrs.Class: "sensor-value-item"},
 				elem.Span(attrs.Props{attrs.Class: "sensor-label"}, elem.Text("Battery:")),
 				elem.Span(attrs.Props{attrs.Class: "sensor-value", "data-role": "battery-value"},
-					elem.Text(fmt.Sprintf("%d %%", *state.Battery)),
+					elem.Text(fmt.Sprintf("%d %%", state.Battery.Get())),
 				),
 			),
 		)
 	}
 
-	if info.Features.Illuminance && state.Illuminance != nil {
+	if info.Features.Illuminance && state.Illuminance.IsSet() {
 		items = append(items,
 			elem.Div(attrs.Props{attrs.Class: "sensor-value-item"},
 				elem.Span(attrs.Props{attrs.Class: "sensor-label"}, elem.Text("Illuminance:")),
 				elem.Span(attrs.Props{attrs.Class: "sensor-value", "data-role": "illuminance-value"},
-					elem.Text(fmt.Sprintf("%d lux", *state.Illuminance)),
+					elem.Text(fmt.Sprintf("%d lux", state.Illuminance.Get())),
 				),
 			),
 		)
@@ -450,8 +448,8 @@ func (ws *WebServer) renderContactSensor(info devices.Device, state devices.Stat
 	var items []elem.Node
 
 	contactText := "Unknown"
-	if state.Contact != nil {
-		if *state.Contact {
+	if state.Contact.IsSet() {
+		if state.Contact.Get() {
 			contactText = "Closed"
 		} else {
 			contactText = "Open"
@@ -467,12 +465,12 @@ func (ws *WebServer) renderContactSensor(info devices.Device, state devices.Stat
 		),
 	)
 
-	if info.Features.Battery && state.Battery != nil {
+	if info.Features.Battery && state.Battery.IsSet() {
 		items = append(items,
 			elem.Div(attrs.Props{attrs.Class: "sensor-value-item"},
 				elem.Span(attrs.Props{attrs.Class: "sensor-label"}, elem.Text("Battery:")),
 				elem.Span(attrs.Props{attrs.Class: "sensor-value", "data-role": "battery-value"},
-					elem.Text(fmt.Sprintf("%d %%", *state.Battery)),
+					elem.Text(fmt.Sprintf("%d %%", state.Battery.Get())),
 				),
 			),
 		)
@@ -485,8 +483,8 @@ func (ws *WebServer) renderLeakSensor(info devices.Device, state devices.State) 
 	var items []elem.Node
 
 	leakText := "Unknown"
-	if state.WaterLeak != nil {
-		if *state.WaterLeak {
+	if state.WaterLeak.IsSet() {
+		if state.WaterLeak.Get() {
 			leakText = "LEAK DETECTED"
 		} else {
 			leakText = "No Leak"
@@ -502,12 +500,12 @@ func (ws *WebServer) renderLeakSensor(info devices.Device, state devices.State) 
 		),
 	)
 
-	if info.Features.Battery && state.Battery != nil {
+	if info.Features.Battery && state.Battery.IsSet() {
 		items = append(items,
 			elem.Div(attrs.Props{attrs.Class: "sensor-value-item"},
 				elem.Span(attrs.Props{attrs.Class: "sensor-label"}, elem.Text("Battery:")),
 				elem.Span(attrs.Props{attrs.Class: "sensor-value", "data-role": "battery-value"},
-					elem.Text(fmt.Sprintf("%d %%", *state.Battery)),
+					elem.Text(fmt.Sprintf("%d %%", state.Battery.Get())),
 				),
 			),
 		)
@@ -520,8 +518,8 @@ func (ws *WebServer) renderSmokeSensor(info devices.Device, state devices.State)
 	var items []elem.Node
 
 	smokeText := "Unknown"
-	if state.Smoke != nil {
-		if *state.Smoke {
+	if state.Smoke.IsSet() {
+		if state.Smoke.Get() {
 			smokeText = "SMOKE DETECTED"
 		} else {
 			smokeText = "Clear"
@@ -537,12 +535,12 @@ func (ws *WebServer) renderSmokeSensor(info devices.Device, state devices.State)
 		),
 	)
 
-	if info.Features.Battery && state.Battery != nil {
+	if info.Features.Battery && state.Battery.IsSet() {
 		items = append(items,
 			elem.Div(attrs.Props{attrs.Class: "sensor-value-item"},
 				elem.Span(attrs.Props{attrs.Class: "sensor-label"}, elem.Text("Battery:")),
 				elem.Span(attrs.Props{attrs.Class: "sensor-value", "data-role": "battery-value"},
-					elem.Text(fmt.Sprintf("%d %%", *state.Battery)),
+					elem.Text(fmt.Sprintf("%d %%", state.Battery.Get())),
 				),
 			),
 		)
@@ -558,7 +556,7 @@ func (ws *WebServer) renderFan(deviceID string, info devices.Device, state devic
 	buttonText := "Turn On"
 	buttonAction := "on"
 
-	if state.On != nil && *state.On {
+	if state.On.Get() {
 		statusClass = "on"
 		statusText = "ON"
 		buttonClass = "off"
@@ -572,20 +570,19 @@ func (ws *WebServer) renderFan(deviceID string, info devices.Device, state devic
 			elem.Div(attrs.Props{attrs.Class: "device-name"}, elem.Text(info.Name)),
 			elem.Div(attrs.Props{attrs.Class: "device-status"},
 				elem.Div(attrs.Props{"data-role": "status-label"}, elem.Text(fmt.Sprintf("Status: %s", statusText))),
-				elem.Div(attrs.Props{"data-role": "last-updated"}, elem.Text(fmt.Sprintf("Last updated: %s", state.LastUpdated.Format("15:04:05")))),
 			),
 			ws.renderConnectionStatus(state),
 		),
 	)
 
 	// Add fan controls if speed feature is enabled
-	if info.Features.Speed && state.FanSpeed != nil {
+	if info.Features.Speed && state.FanSpeed.IsSet() {
 		cardChildren = append(cardChildren,
 			elem.Div(attrs.Props{attrs.Class: "light-controls"},
 				elem.Div(attrs.Props{attrs.Class: "light-control-item"},
 					elem.Span(attrs.Props{attrs.Class: "light-control-label"}, elem.Text("Speed:")),
 					elem.Span(attrs.Props{attrs.Class: "light-control-value", "data-role": "fan-speed-value"},
-						elem.Text(fmt.Sprintf("%d%%", *state.FanSpeed)),
+						elem.Text(fmt.Sprintf("%d%%", state.FanSpeed.Get())),
 					),
 				),
 			),
@@ -615,7 +612,7 @@ func (ws *WebServer) renderLightbulb(deviceID string, info devices.Device, state
 	buttonText := "Turn On"
 	buttonAction := "on"
 
-	if state.On != nil && *state.On {
+	if state.On.Get() {
 		statusClass = "on"
 		statusText = "ON"
 		buttonClass = "off"
@@ -630,7 +627,6 @@ func (ws *WebServer) renderLightbulb(deviceID string, info devices.Device, state
 			elem.Div(attrs.Props{attrs.Class: "device-name"}, elem.Text(info.Name)),
 			elem.Div(attrs.Props{attrs.Class: "device-status"},
 				elem.Div(attrs.Props{"data-role": "status-label"}, elem.Text(fmt.Sprintf("Status: %s", statusText))),
-				elem.Div(attrs.Props{"data-role": "last-updated"}, elem.Text(fmt.Sprintf("Last updated: %s", state.LastUpdated.Format("15:04:05")))),
 			),
 			ws.renderConnectionStatus(state),
 		),
@@ -639,8 +635,8 @@ func (ws *WebServer) renderLightbulb(deviceID string, info devices.Device, state
 	// Add light controls if applicable
 	var lightItems []elem.Node
 
-	if info.Features.Brightness && state.Brightness != nil {
-		brightnessHAP := devices.Z2MBrightnessToHAP(*state.Brightness)
+	if info.Features.Brightness && state.Brightness.IsSet() {
+		brightnessHAP := devices.Z2MBrightnessToHAP(state.Brightness.Get())
 		lightItems = append(lightItems,
 			elem.Div(attrs.Props{attrs.Class: "light-control-item brightness-slider-container"},
 				elem.Span(attrs.Props{attrs.Class: "light-control-label"}, elem.Text("Brightness:")),
@@ -666,34 +662,34 @@ func (ws *WebServer) renderLightbulb(deviceID string, info devices.Device, state
 		)
 	}
 
-	if info.Features.Color && state.Hue != nil {
+	if info.Features.Color && state.Hue.IsSet() {
 		lightItems = append(lightItems,
 			elem.Div(attrs.Props{attrs.Class: "light-control-item"},
 				elem.Span(attrs.Props{attrs.Class: "light-control-label"}, elem.Text("Hue:")),
 				elem.Span(attrs.Props{attrs.Class: "light-control-value", "data-role": "hue-value"},
-					elem.Text(fmt.Sprintf("%.0f°", *state.Hue)),
+					elem.Text(fmt.Sprintf("%.0f°", state.Hue.Get())),
 				),
 			),
 		)
 	}
 
-	if info.Features.Color && state.Saturation != nil {
+	if info.Features.Color && state.Saturation.IsSet() {
 		lightItems = append(lightItems,
 			elem.Div(attrs.Props{attrs.Class: "light-control-item"},
 				elem.Span(attrs.Props{attrs.Class: "light-control-label"}, elem.Text("Saturation:")),
 				elem.Span(attrs.Props{attrs.Class: "light-control-value", "data-role": "saturation-value"},
-					elem.Text(fmt.Sprintf("%.0f%%", *state.Saturation)),
+					elem.Text(fmt.Sprintf("%.0f%%", state.Saturation.Get())),
 				),
 			),
 		)
 	}
 
-	if info.Features.ColorTemperature && state.ColorTemp != nil {
+	if info.Features.ColorTemperature && state.ColorTemp.IsSet() {
 		lightItems = append(lightItems,
 			elem.Div(attrs.Props{attrs.Class: "light-control-item"},
 				elem.Span(attrs.Props{attrs.Class: "light-control-label"}, elem.Text("Color Temp:")),
 				elem.Span(attrs.Props{attrs.Class: "light-control-value", "data-role": "color-temp-value"},
-					elem.Text(fmt.Sprintf("%d mireds", *state.ColorTemp)),
+					elem.Text(fmt.Sprintf("%d mireds", state.ColorTemp.Get())),
 				),
 			),
 		)
@@ -727,7 +723,7 @@ func (ws *WebServer) renderOutlet(deviceID string, info devices.Device, state de
 	buttonText := "Turn On"
 	buttonAction := "on"
 
-	if state.On != nil && *state.On {
+	if state.On.Get() {
 		statusClass = "on"
 		statusText = "ON"
 		buttonClass = "off"
@@ -746,7 +742,6 @@ func (ws *WebServer) renderOutlet(deviceID string, info devices.Device, state de
 			elem.Div(attrs.Props{attrs.Class: "device-name"}, elem.Text(info.Name)),
 			elem.Div(attrs.Props{attrs.Class: "device-status"},
 				elem.Div(attrs.Props{"data-role": "status-label"}, elem.Text(fmt.Sprintf("Status: %s", statusText))),
-				elem.Div(attrs.Props{"data-role": "last-updated"}, elem.Text(fmt.Sprintf("Last updated: %s", state.LastUpdated.Format("15:04:05")))),
 			),
 			ws.renderConnectionStatus(state),
 		),

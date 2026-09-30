@@ -134,46 +134,11 @@ func isValidDeviceType(t DeviceType) bool {
 	}
 }
 
-// State represents the runtime state of a device.
-type State struct {
-	ID   string
-	Name string
-
-	// Sensor values
-	Temperature *float64
-	Humidity    *float64
-	Battery     *int
-	Occupancy   *bool
-	Illuminance *int
-	Pressure    *float64
-	Contact     *bool // true = closed, false = open (Z2M convention)
-	WaterLeak   *bool // true = leak detected
-	Smoke       *bool // true = smoke detected
-	Tamper      *bool // true = tampered
-
-	// Light values
-	On         *bool
-	Brightness *int     // 0-254 (Z2M scale, convert to 0-100 for HAP)
-	Hue        *float64 // 0-360
-	Saturation *float64 // 0-100
-	ColorTemp  *int     // mireds
-
-	// Fan values
-	FanSpeed     *int  // 0-100 (percentage)
-	FanDirection *bool // true = forward, false = reverse
-	FanSwing     *bool // true = oscillating
-
-	// Connectivity
-	LinkQuality int
-	LastUpdated time.Time
-	LastSeen    time.Time
-}
-
-// StateChangedEvent is emitted when a device's state changes (from MQTT).
+// StateChangedEvent carries one zigbee2mqtt report from the MQTT hook.
 type StateChangedEvent struct {
-	DeviceID      string
-	State         State
-	UpdatedFields []string
+	DeviceID string
+	Reading  Reading
+	At       time.Time
 }
 
 // CommandEvent requests a device command.

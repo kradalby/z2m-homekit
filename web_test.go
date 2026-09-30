@@ -307,3 +307,51 @@ func TestSSESkipsDevicesHiddenFromWeb(t *testing.T) {
 	}
 	expectQuiet(t, events)
 }
+
+// A device that goes quiet must age to stale and then disconnected on an open
+// dashboard, rather than showing the status computed when it last reported.
+func TestSSEConnectionStatusAgesWithoutReports(t *testing.T) {
+	cfg := climateSensors(1)
+	ws, dm := newTestWebServer(t, cfg...)
+	id := cfg[0].ID
+
+	var mu sync.Mutex
+	clock := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	now := func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return clock
+	}
+	advance := func(d time.Duration) {
+		mu.Lock()
+		defer mu.Unlock()
+		clock = clock.Add(d)
+	}
+	ws.now = now
+	ws.refresh = time.Millisecond
+
+	var r devices.Reading
+	r.Temperature.Set(20)
+	dm.Update(id, r, now())
+
+	events := connectSSE(t, ws)
+	got := cards{}
+	indicator := func(state string) func(cards) bool {
+		return func(c cards) bool {
+			return strings.Contains(c[sseEventName(id)], `class="connection-indicator `+state+`"`)
+		}
+	}
+
+	got.await(t, events, "connected", indicator("connected"))
+	advance(45 * time.Second)
+	got.await(t, events, "stale", indicator("stale"))
+	advance(30 * time.Second)
+	got.await(t, events, "disconnected", indicator("disconnected"))
+
+	if card := got[sseEventName(id)]; !strings.Contains(card, "Last seen 03:04:05") {
+		t.Errorf("card = %s, want absolute last-seen time", card)
+	}
+
+	// Ticks without a threshold crossing must not resend the card.
+	expectQuiet(t, events)
+}

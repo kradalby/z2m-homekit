@@ -55,6 +55,9 @@ type WebServer struct {
 	qrCode           string
 	hapManager       *HAPManager
 	ctx              context.Context
+
+	now     func() time.Time
+	refresh time.Duration // how often SSE re-renders cards absent state changes
 }
 
 // NewWebServer creates a new web server
@@ -78,6 +81,8 @@ func NewWebServer(logger *slog.Logger, deviceProvider deviceStateProvider, contr
 		qrCode:           qrCode,
 		hapManager:       hapManager,
 		ctx:              context.Background(),
+		now:              time.Now,
+		refresh:          5 * time.Second,
 	}
 }
 
@@ -194,7 +199,9 @@ func (ws *WebServer) renderPage(title string, content elem.Node) string {
 	return page.Render()
 }
 
-func (ws *WebServer) renderDeviceCard(deviceID string, info devices.Device, state devices.State) elem.Node {
+// renderDeviceCard is the only card renderer: the page, htmx responses and
+// the SSE stream all use it.
+func (ws *WebServer) renderDeviceCard(deviceID string, info devices.Device, state devices.State, now time.Time) elem.Node {
 	statusClass := "sensor"
 	icon := ws.getDeviceIcon(info.Type)
 
@@ -203,7 +210,7 @@ func (ws *WebServer) renderDeviceCard(deviceID string, info devices.Device, stat
 			elem.Div(attrs.Props{attrs.Class: "device-icon"}, elem.Text(icon)),
 			elem.Div(attrs.Props{attrs.Class: "device-info"},
 				elem.Div(attrs.Props{attrs.Class: "device-name"}, elem.Text(info.Name)),
-				ws.renderConnectionStatus(state),
+				ws.renderConnectionStatus(state, now),
 			),
 		),
 	}
@@ -220,14 +227,13 @@ func (ws *WebServer) renderDeviceCard(deviceID string, info devices.Device, stat
 	case devices.DeviceTypeSmokeSensor:
 		cardChildren = append(cardChildren, ws.renderSmokeSensor(info, state))
 	case devices.DeviceTypeLightbulb:
-		statusClass, cardChildren = ws.renderLightbulb(deviceID, info, state, cardChildren)
+		statusClass, cardChildren = ws.renderLightbulb(deviceID, info, state, now, cardChildren)
 	case devices.DeviceTypeOutlet, devices.DeviceTypeSwitch:
-		statusClass, cardChildren = ws.renderOutlet(deviceID, info, state, cardChildren)
+		statusClass, cardChildren = ws.renderOutlet(deviceID, info, state, now, cardChildren)
 	case devices.DeviceTypeFan:
-		statusClass, cardChildren = ws.renderFan(deviceID, info, state, cardChildren)
+		statusClass, cardChildren = ws.renderFan(deviceID, info, state, now, cardChildren)
 	}
 
-	// The SSE stream replaces the whole card, so this is the only renderer.
 	return elem.Div(
 		attrs.Props{
 			attrs.ID:         "device-" + deviceID,
@@ -466,7 +472,7 @@ func (ws *WebServer) renderSmokeSensor(info devices.Device, state devices.State)
 	return elem.Div(attrs.Props{attrs.Class: "sensor-values"}, items...)
 }
 
-func (ws *WebServer) renderFan(deviceID string, info devices.Device, state devices.State, cardChildren []elem.Node) (string, []elem.Node) {
+func (ws *WebServer) renderFan(deviceID string, info devices.Device, state devices.State, now time.Time, cardChildren []elem.Node) (string, []elem.Node) {
 	statusClass := "off"
 	statusText := "OFF"
 	buttonClass := "on"
@@ -488,7 +494,7 @@ func (ws *WebServer) renderFan(deviceID string, info devices.Device, state devic
 			elem.Div(attrs.Props{attrs.Class: "device-status"},
 				elem.Div(attrs.Props{"data-role": "status-label"}, elem.Text(fmt.Sprintf("Status: %s", statusText))),
 			),
-			ws.renderConnectionStatus(state),
+			ws.renderConnectionStatus(state, now),
 		),
 	)
 
@@ -522,7 +528,7 @@ func (ws *WebServer) renderFan(deviceID string, info devices.Device, state devic
 	return statusClass, cardChildren
 }
 
-func (ws *WebServer) renderLightbulb(deviceID string, info devices.Device, state devices.State, cardChildren []elem.Node) (string, []elem.Node) {
+func (ws *WebServer) renderLightbulb(deviceID string, info devices.Device, state devices.State, now time.Time, cardChildren []elem.Node) (string, []elem.Node) {
 	statusClass := "off"
 	statusText := "OFF"
 	buttonClass := "on"
@@ -545,7 +551,7 @@ func (ws *WebServer) renderLightbulb(deviceID string, info devices.Device, state
 			elem.Div(attrs.Props{attrs.Class: "device-status"},
 				elem.Div(attrs.Props{"data-role": "status-label"}, elem.Text(fmt.Sprintf("Status: %s", statusText))),
 			),
-			ws.renderConnectionStatus(state),
+			ws.renderConnectionStatus(state, now),
 		),
 	)
 
@@ -633,7 +639,7 @@ func (ws *WebServer) renderLightbulb(deviceID string, info devices.Device, state
 	return statusClass, cardChildren
 }
 
-func (ws *WebServer) renderOutlet(deviceID string, info devices.Device, state devices.State, cardChildren []elem.Node) (string, []elem.Node) {
+func (ws *WebServer) renderOutlet(deviceID string, info devices.Device, state devices.State, now time.Time, cardChildren []elem.Node) (string, []elem.Node) {
 	statusClass := "off"
 	statusText := "OFF"
 	buttonClass := "on"
@@ -660,7 +666,7 @@ func (ws *WebServer) renderOutlet(deviceID string, info devices.Device, state de
 			elem.Div(attrs.Props{attrs.Class: "device-status"},
 				elem.Div(attrs.Props{"data-role": "status-label"}, elem.Text(fmt.Sprintf("Status: %s", statusText))),
 			),
-			ws.renderConnectionStatus(state),
+			ws.renderConnectionStatus(state, now),
 		),
 	)
 
@@ -680,8 +686,8 @@ func (ws *WebServer) renderOutlet(deviceID string, info devices.Device, state de
 	return statusClass, cardChildren
 }
 
-func (ws *WebServer) renderConnectionStatus(state devices.State) elem.Node {
-	indicator, text := connectionStatus(state.LastSeen)
+func (ws *WebServer) renderConnectionStatus(state devices.State, now time.Time) elem.Node {
+	indicator, text := connectionStatus(state.LastSeen, now)
 
 	return elem.Div(attrs.Props{attrs.Class: "connection-status"},
 		elem.Span(attrs.Props{"data-role": "connection-indicator", attrs.Class: "connection-indicator " + indicator}),
@@ -690,13 +696,18 @@ func (ws *WebServer) renderConnectionStatus(state devices.State) elem.Node {
 }
 
 // connectionStatus derives a device's link state from when it was last heard.
-func connectionStatus(lastSeen time.Time) (indicator, text string) {
+// The text is absolute so a card only changes when the device reports or
+// crosses a threshold, not every second.
+func connectionStatus(lastSeen, now time.Time) (indicator, text string) {
 	if lastSeen.IsZero() {
 		return "disconnected", "Never seen"
 	}
 
-	since := time.Since(lastSeen)
-	text = fmt.Sprintf("Last seen: %s ago", since.Round(time.Second))
+	since := now.Sub(lastSeen)
+	text = "Last seen " + lastSeen.Format(time.TimeOnly)
+	if since >= 24*time.Hour {
+		text = "Last seen " + lastSeen.Format(time.DateTime)
+	}
 	switch {
 	case since < 30*time.Second:
 		return "connected", text
@@ -720,7 +731,7 @@ func (ws *WebServer) HandleIndex(w http.ResponseWriter, r *http.Request) {
 		if !onWeb(ds.Device) {
 			continue
 		}
-		deviceElements = append(deviceElements, ws.renderDeviceCard(ds.Device.ID, ds.Device, ds.State))
+		deviceElements = append(deviceElements, ws.renderDeviceCard(ds.Device.ID, ds.Device, ds.State, ws.now()))
 	}
 
 	var eventElements []elem.Node
@@ -824,7 +835,7 @@ func (ws *WebServer) HandleToggle(w http.ResponseWriter, r *http.Request) {
 		ds, _ = ws.deviceProvider.Snapshot().Get(deviceID)
 
 		w.Header().Set("Content-Type", "text/html")
-		if _, err := fmt.Fprint(w, ws.renderDeviceCard(deviceID, ds.Device, ds.State).Render()); err != nil {
+		if _, err := fmt.Fprint(w, ws.renderDeviceCard(deviceID, ds.Device, ds.State, ws.now()).Render()); err != nil {
 			ws.logger.Error("Failed to write response", slog.Any("error", err))
 		}
 		return
@@ -876,7 +887,7 @@ func (ws *WebServer) HandleBrightness(w http.ResponseWriter, r *http.Request) {
 		ds, _ = ws.deviceProvider.Snapshot().Get(deviceID)
 
 		w.Header().Set("Content-Type", "text/html")
-		if _, err := fmt.Fprint(w, ws.renderDeviceCard(deviceID, ds.Device, ds.State).Render()); err != nil {
+		if _, err := fmt.Fprint(w, ws.renderDeviceCard(deviceID, ds.Device, ds.State, ws.now()).Render()); err != nil {
 			ws.logger.Error("Failed to write response", slog.Any("error", err))
 		}
 		return
@@ -902,7 +913,7 @@ func (ws *WebServer) HandleEventBusDebug(w http.ResponseWriter, r *http.Request)
 		if on, ok := ds.State.On.GetOk(); ok {
 			onText = fmt.Sprintf("%t", on)
 		}
-		connection, _ := connectionStatus(ds.State.LastSeen)
+		connection, _ := connectionStatus(ds.State.LastSeen, ws.now())
 		rows = append(rows,
 			elem.Tr(attrs.Props{},
 				elem.Td(attrs.Props{}, elem.Text(ds.Device.ID)),
@@ -971,15 +982,21 @@ func (ws *WebServer) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	ws.sseClients.Add(1)
 	defer ws.sseClients.Add(-1)
 
+	// Connection state ages with the clock, not with reports, so re-render
+	// periodically even when nothing is published.
+	refresh := time.NewTicker(ws.refresh)
+	defer refresh.Stop()
+
 	sent := make(map[string]string) // device ID -> card last sent to this client
 	for {
 		snap := ws.deviceProvider.Snapshot()
+		now := ws.now()
 		for _, ds := range snap.All() {
 			if !onWeb(ds.Device) {
 				continue
 			}
 
-			card := ws.renderDeviceCard(ds.Device.ID, ds.Device, ds.State).Render()
+			card := ws.renderDeviceCard(ds.Device.ID, ds.Device, ds.State, now).Render()
 			if sent[ds.Device.ID] == card {
 				continue
 			}
@@ -992,6 +1009,7 @@ func (ws *WebServer) HandleSSE(w http.ResponseWriter, r *http.Request) {
 
 		select {
 		case <-snap.Changed():
+		case <-refresh.C:
 		case <-r.Context().Done():
 			return
 		case <-ws.ctx.Done():

@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/chasefleming/elem-go"
@@ -25,9 +27,6 @@ import (
 
 //go:embed assets/style.css
 var cssContent string
-
-//go:embed assets/script.js
-var jsContent string
 
 type deviceStateProvider interface {
 	Snapshot() *devices.Snapshot
@@ -48,14 +47,10 @@ type WebServer struct {
 	eventLogMu       sync.Mutex
 	eventBus         *events.Bus
 	client           *eventbus.Client
-	stateSubscriber  *eventbus.Subscriber[events.StateUpdateEvent]
 	statusSubscriber *eventbus.Subscriber[events.ConnectionStatusEvent]
-	currentState     map[string]events.StateUpdateEvent
 	connectionState  map[string]events.ConnectionStatusEvent
-	stateMu          sync.RWMutex
 	statusMu         sync.RWMutex
-	sseClients       map[chan events.StateUpdateEvent]struct{}
-	sseClientsMu     sync.RWMutex
+	sseClients       atomic.Int64
 	hapPin           string
 	qrCode           string
 	hapManager       *HAPManager
@@ -77,11 +72,8 @@ func NewWebServer(logger *slog.Logger, deviceProvider deviceStateProvider, contr
 		eventLog:         make([]string, 0, 100),
 		eventBus:         bus,
 		client:           client,
-		stateSubscriber:  eventbus.Subscribe[events.StateUpdateEvent](client),
 		statusSubscriber: eventbus.Subscribe[events.ConnectionStatusEvent](client),
-		currentState:     make(map[string]events.StateUpdateEvent),
 		connectionState:  make(map[string]events.ConnectionStatusEvent),
-		sseClients:       make(map[chan events.StateUpdateEvent]struct{}),
 		hapPin:           hapPin,
 		qrCode:           qrCode,
 		hapManager:       hapManager,
@@ -115,7 +107,6 @@ func (ws *WebServer) recentEvents(n int) []string {
 
 func (ws *WebServer) Start(ctx context.Context) {
 	ws.ctx = ctx
-	go ws.processStateChanges(ctx)
 	go ws.processConnectionStatuses(ctx)
 	ws.publishConnectionStatus(events.ConnectionStatusConnecting, "")
 
@@ -139,16 +130,7 @@ func (ws *WebServer) Start(ctx context.Context) {
 }
 
 func (ws *WebServer) Close() {
-	ws.stateSubscriber.Close()
 	ws.statusSubscriber.Close()
-
-	// Each SSE channel is owned by the HandleSSE goroutine that created it, and
-	// that goroutine closes it on the way out. Closing them here as well races
-	// those defers during shutdown and panics with "close of closed channel";
-	// dropping the registrations is enough to stop any further broadcast.
-	ws.sseClientsMu.Lock()
-	clear(ws.sseClients)
-	ws.sseClientsMu.Unlock()
 }
 
 func (ws *WebServer) publishConnectionStatus(status events.ConnectionStatus, errMsg string) {
@@ -164,22 +146,6 @@ func (ws *WebServer) publishConnectionStatus(status events.ConnectionStatus, err
 	})
 }
 
-func (ws *WebServer) processStateChanges(ctx context.Context) {
-	for {
-		select {
-		case event := <-ws.stateSubscriber.Events():
-			ws.stateMu.Lock()
-			ws.currentState[event.DeviceID] = event
-			ws.stateMu.Unlock()
-
-			ws.logger.Debug("Web UI: State change received", "device_id", event.DeviceID)
-			ws.broadcastSSE(event)
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
 func (ws *WebServer) processConnectionStatuses(ctx context.Context) {
 	for {
 		select {
@@ -191,34 +157,6 @@ func (ws *WebServer) processConnectionStatuses(ctx context.Context) {
 			return
 		}
 	}
-}
-
-func (ws *WebServer) broadcastSSE(event events.StateUpdateEvent) {
-	ws.sseClientsMu.RLock()
-	defer ws.sseClientsMu.RUnlock()
-
-	for client := range ws.sseClients {
-		select {
-		case client <- event:
-		default:
-		}
-	}
-}
-
-func (ws *WebServer) snapshotState() []events.StateUpdateEvent {
-	ws.stateMu.RLock()
-	defer ws.stateMu.RUnlock()
-
-	snapshot := make([]events.StateUpdateEvent, 0, len(ws.currentState))
-	for _, evt := range ws.currentState {
-		snapshot = append(snapshot, evt)
-	}
-
-	slices.SortFunc(snapshot, func(a, b events.StateUpdateEvent) int {
-		return cmp.Compare(a.DeviceID, b.DeviceID)
-	})
-
-	return snapshot
 }
 
 func (ws *WebServer) snapshotStatuses() []events.ConnectionStatusEvent {
@@ -246,8 +184,10 @@ func (ws *WebServer) renderPage(title string, content elem.Node) string {
 			elem.Script(attrs.Props{
 				attrs.Src: "https://unpkg.com/htmx.org@2.0.11",
 			}),
+			elem.Script(attrs.Props{
+				attrs.Src: "https://unpkg.com/htmx-ext-sse@2.2.4/sse.js",
+			}),
 			elem.Style(attrs.Props{}, elem.Text(cssContent)),
-			elem.Script(attrs.Props{}, elem.Raw(jsContent)),
 		),
 		elem.Body(attrs.Props{}, content),
 	)
@@ -258,34 +198,12 @@ func (ws *WebServer) renderDeviceCard(deviceID string, info devices.Device, stat
 	statusClass := "sensor"
 	icon := ws.getDeviceIcon(info.Type)
 
-	var connectionIndicator, connectionText string
-	if state.LastSeen.IsZero() {
-		connectionIndicator = "disconnected"
-		connectionText = "Never seen"
-	} else {
-		timeSinceSeen := time.Since(state.LastSeen)
-		if timeSinceSeen < 30*time.Second {
-			connectionIndicator = "connected"
-			connectionText = fmt.Sprintf("Last seen: %s ago", timeSinceSeen.Round(time.Second))
-		} else if timeSinceSeen < 60*time.Second {
-			connectionIndicator = "stale"
-			connectionText = fmt.Sprintf("Last seen: %s ago", timeSinceSeen.Round(time.Second))
-		} else {
-			connectionIndicator = "disconnected"
-			connectionText = fmt.Sprintf("Last seen: %s ago", timeSinceSeen.Round(time.Second))
-		}
-	}
-
 	cardChildren := []elem.Node{
 		elem.Div(attrs.Props{attrs.Class: "device-header"},
 			elem.Div(attrs.Props{attrs.Class: "device-icon"}, elem.Text(icon)),
 			elem.Div(attrs.Props{attrs.Class: "device-info"},
 				elem.Div(attrs.Props{attrs.Class: "device-name"}, elem.Text(info.Name)),
-				elem.Div(attrs.Props{attrs.Class: "device-status"}),
-				elem.Div(attrs.Props{attrs.Class: "connection-status"},
-					elem.Span(attrs.Props{"data-role": "connection-indicator", attrs.Class: "connection-indicator " + connectionIndicator}),
-					elem.Span(attrs.Props{"data-role": "connection-text"}, elem.Text(connectionText)),
-				),
+				ws.renderConnectionStatus(state),
 			),
 		),
 	}
@@ -309,11 +227,14 @@ func (ws *WebServer) renderDeviceCard(deviceID string, info devices.Device, stat
 		statusClass, cardChildren = ws.renderFan(deviceID, info, state, cardChildren)
 	}
 
+	// The SSE stream replaces the whole card, so this is the only renderer.
 	return elem.Div(
 		attrs.Props{
 			attrs.ID:         "device-" + deviceID,
 			attrs.Class:      "device " + statusClass,
 			"data-device-id": deviceID,
+			"sse-swap":       sseEventName(deviceID),
+			"hx-swap":        "outerHTML",
 		},
 		cardChildren...,
 	)
@@ -760,28 +681,34 @@ func (ws *WebServer) renderOutlet(deviceID string, info devices.Device, state de
 }
 
 func (ws *WebServer) renderConnectionStatus(state devices.State) elem.Node {
-	var connectionIndicator, connectionText string
-	if state.LastSeen.IsZero() {
-		connectionIndicator = "disconnected"
-		connectionText = "Never seen"
-	} else {
-		timeSinceSeen := time.Since(state.LastSeen)
-		if timeSinceSeen < 30*time.Second {
-			connectionIndicator = "connected"
-			connectionText = fmt.Sprintf("Last seen: %s ago", timeSinceSeen.Round(time.Second))
-		} else if timeSinceSeen < 60*time.Second {
-			connectionIndicator = "stale"
-			connectionText = fmt.Sprintf("Last seen: %s ago", timeSinceSeen.Round(time.Second))
-		} else {
-			connectionIndicator = "disconnected"
-			connectionText = fmt.Sprintf("Last seen: %s ago", timeSinceSeen.Round(time.Second))
-		}
-	}
+	indicator, text := connectionStatus(state.LastSeen)
 
 	return elem.Div(attrs.Props{attrs.Class: "connection-status"},
-		elem.Span(attrs.Props{"data-role": "connection-indicator", attrs.Class: "connection-indicator " + connectionIndicator}),
-		elem.Span(attrs.Props{"data-role": "connection-text"}, elem.Text(connectionText)),
+		elem.Span(attrs.Props{"data-role": "connection-indicator", attrs.Class: "connection-indicator " + indicator}),
+		elem.Span(attrs.Props{"data-role": "connection-text"}, elem.Text(text)),
 	)
+}
+
+// connectionStatus derives a device's link state from when it was last heard.
+func connectionStatus(lastSeen time.Time) (indicator, text string) {
+	if lastSeen.IsZero() {
+		return "disconnected", "Never seen"
+	}
+
+	since := time.Since(lastSeen)
+	text = fmt.Sprintf("Last seen: %s ago", since.Round(time.Second))
+	switch {
+	case since < 30*time.Second:
+		return "connected", text
+	case since < 60*time.Second:
+		return "stale", text
+	default:
+		return "disconnected", text
+	}
+}
+
+func onWeb(d devices.Device) bool {
+	return d.Web == nil || *d.Web
 }
 
 // HandleIndex renders the main dashboard
@@ -790,7 +717,7 @@ func (ws *WebServer) HandleIndex(w http.ResponseWriter, r *http.Request) {
 
 	snapshot := ws.deviceProvider.Snapshot()
 	for _, ds := range snapshot.All() {
-		if ds.Device.Web != nil && !*ds.Device.Web {
+		if !onWeb(ds.Device) {
 			continue
 		}
 		deviceElements = append(deviceElements, ws.renderDeviceCard(ds.Device.ID, ds.Device, ds.State))
@@ -848,7 +775,7 @@ func (ws *WebServer) HandleIndex(w http.ResponseWriter, r *http.Request) {
 		elem.H1(attrs.Props{}, elem.Text("Zigbee2MQTT HomeKit Bridge")),
 		elem.P(attrs.Props{}, elem.Text(fmt.Sprintf("Managing %d devices", snapshot.Len()))),
 		homekitSection,
-		elem.Div(attrs.Props{attrs.Class: "devices-grid"}, deviceElements...),
+		elem.Div(attrs.Props{attrs.Class: "devices-grid", "hx-ext": "sse", "sse-connect": "/events"}, deviceElements...),
 		elem.Div(attrs.Props{attrs.Class: "events"},
 			elem.H2(attrs.Props{}, elem.Text("Recent Events")),
 			elem.Div(attrs.Props{}, eventElements...),
@@ -877,7 +804,7 @@ func (ws *WebServer) HandleToggle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if ds.Device.Web != nil && !*ds.Device.Web {
+	if !onWeb(ds.Device) {
 		http.Error(w, "Device not available on web", http.StatusNotFound)
 		return
 	}
@@ -922,7 +849,7 @@ func (ws *WebServer) HandleBrightness(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if ds.Device.Web != nil && !*ds.Device.Web {
+	if !onWeb(ds.Device) {
 		http.Error(w, "Device not available on web", http.StatusNotFound)
 		return
 	}
@@ -958,38 +885,31 @@ func (ws *WebServer) HandleBrightness(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-// HandleEventBusDebug renders a simple diagnostic view of the current state map.
+// HandleEventBusDebug renders a simple diagnostic view of device and component state.
 func (ws *WebServer) HandleEventBusDebug(w http.ResponseWriter, r *http.Request) {
-	snapshot := ws.snapshotState()
-
-	ws.sseClientsMu.RLock()
-	clientCount := len(ws.sseClients)
-	ws.sseClientsMu.RUnlock()
-
 	rows := []elem.Node{
 		elem.Tr(attrs.Props{},
 			elem.Th(attrs.Props{}, elem.Text("Device ID")),
 			elem.Th(attrs.Props{}, elem.Text("Name")),
 			elem.Th(attrs.Props{}, elem.Text("On")),
-			elem.Th(attrs.Props{}, elem.Text("Last Updated")),
 			elem.Th(attrs.Props{}, elem.Text("Last Seen")),
 			elem.Th(attrs.Props{}, elem.Text("Connection")),
 		),
 	}
 
-	for _, evt := range snapshot {
+	for _, ds := range ws.deviceProvider.Snapshot().All() {
 		onText := "n/a"
-		if evt.On != nil {
-			onText = fmt.Sprintf("%t", *evt.On)
+		if on, ok := ds.State.On.GetOk(); ok {
+			onText = fmt.Sprintf("%t", on)
 		}
+		connection, _ := connectionStatus(ds.State.LastSeen)
 		rows = append(rows,
 			elem.Tr(attrs.Props{},
-				elem.Td(attrs.Props{}, elem.Text(evt.DeviceID)),
-				elem.Td(attrs.Props{}, elem.Text(evt.Name)),
+				elem.Td(attrs.Props{}, elem.Text(ds.Device.ID)),
+				elem.Td(attrs.Props{}, elem.Text(ds.Device.Name)),
 				elem.Td(attrs.Props{}, elem.Text(onText)),
-				elem.Td(attrs.Props{}, elem.Text(evt.LastUpdated.Format(time.RFC3339))),
-				elem.Td(attrs.Props{}, elem.Text(evt.LastSeen.Format(time.RFC3339))),
-				elem.Td(attrs.Props{}, elem.Text(evt.ConnectionNote)),
+				elem.Td(attrs.Props{}, elem.Text(ds.State.LastSeen.Format(time.RFC3339))),
+				elem.Td(attrs.Props{}, elem.Text(connection)),
 			),
 		)
 	}
@@ -1016,7 +936,7 @@ func (ws *WebServer) HandleEventBusDebug(w http.ResponseWriter, r *http.Request)
 
 	content := elem.Div(attrs.Props{},
 		elem.H1(attrs.Props{}, elem.Text("EventBus Debug")),
-		elem.P(attrs.Props{}, elem.Text(fmt.Sprintf("Connected SSE clients: %d", clientCount))),
+		elem.P(attrs.Props{}, elem.Text(fmt.Sprintf("Connected SSE clients: %d", ws.sseClients.Load()))),
 		elem.Table(attrs.Props{"border": "1", "cellpadding": "4", "cellspacing": "0"}, rows...),
 		elem.H2(attrs.Props{}, elem.Text("Component Status")),
 		elem.Table(attrs.Props{"border": "1", "cellpadding": "4", "cellspacing": "0"}, statusRows...),
@@ -1028,7 +948,10 @@ func (ws *WebServer) HandleEventBusDebug(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// HandleSSE streams JSON state updates to clients.
+// HandleSSE streams each web-visible device's rendered card whenever it
+// changes. Every wake renders from the latest snapshot, so a slow client
+// skips intermediate states rather than losing the newest one, and it can
+// never see an older state after a newer one.
 func (ws *WebServer) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -1045,46 +968,55 @@ func (ws *WebServer) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	clientChan := make(chan events.StateUpdateEvent, 10)
+	ws.sseClients.Add(1)
+	defer ws.sseClients.Add(-1)
 
-	ws.sseClientsMu.Lock()
-	ws.sseClients[clientChan] = struct{}{}
-	ws.sseClientsMu.Unlock()
-
-	defer func() {
-		ws.sseClientsMu.Lock()
-		delete(ws.sseClients, clientChan)
-		ws.sseClientsMu.Unlock()
-		close(clientChan)
-	}()
-
-	for _, evt := range ws.snapshotState() {
-		select {
-		case clientChan <- evt:
-		default:
-		}
-	}
-
+	sent := make(map[string]string) // device ID -> card last sent to this client
 	for {
-		select {
-		case evt := <-clientChan:
-			payload, err := json.Marshal(evt)
-			if err != nil {
-				ws.logger.Error("Failed to marshal SSE payload", slog.Any("error", err))
+		snap := ws.deviceProvider.Snapshot()
+		for _, ds := range snap.All() {
+			if !onWeb(ds.Device) {
 				continue
 			}
 
-			if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
+			card := ws.renderDeviceCard(ds.Device.ID, ds.Device, ds.State).Render()
+			if sent[ds.Device.ID] == card {
+				continue
+			}
+			if err := writeSSE(w, sseEventName(ds.Device.ID), card); err != nil {
 				return
 			}
-			flusher.Flush()
+			sent[ds.Device.ID] = card
+		}
+		flusher.Flush()
 
+		select {
+		case <-snap.Changed():
 		case <-r.Context().Done():
 			return
 		case <-ws.ctx.Done():
 			return
 		}
 	}
+}
+
+func sseEventName(deviceID string) string {
+	return "device-" + deviceID
+}
+
+// writeSSE frames data as one server-sent event; every line of a multi-line
+// payload needs its own data: prefix.
+func writeSSE(w io.Writer, event, data string) error {
+	var b strings.Builder
+	b.WriteString("event: " + event + "\n")
+	for line := range strings.SplitSeq(data, "\n") {
+		b.WriteString("data: " + line + "\n")
+	}
+	b.WriteString("\n")
+
+	_, err := io.WriteString(w, b.String())
+
+	return err
 }
 
 // HandleHealth exposes a JSON health summary.
@@ -1096,10 +1028,6 @@ func (ws *WebServer) HandleHealth(w http.ResponseWriter, r *http.Request) {
 
 	snapshot := ws.deviceProvider.Snapshot()
 
-	ws.sseClientsMu.RLock()
-	sseClients := len(ws.sseClients)
-	ws.sseClientsMu.RUnlock()
-
 	resp := struct {
 		Status     string    `json:"status"`
 		Devices    int       `json:"devices"`
@@ -1108,7 +1036,7 @@ func (ws *WebServer) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	}{
 		Status:     "ok",
 		Devices:    snapshot.Len(),
-		SSEClients: sseClients,
+		SSEClients: int(ws.sseClients.Load()),
 		Timestamp:  time.Now(),
 	}
 

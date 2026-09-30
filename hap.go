@@ -55,15 +55,14 @@ type AccessoryInfo struct {
 
 // HAPManager manages HomeKit accessories and their state synchronization
 type HAPManager struct {
-	bridge          *accessory.Bridge
-	accessories     map[string]*AccessoryInfo
-	accessoryOrder  []string
-	commands        chan devices.CommandEvent
-	deviceManager   *devices.Manager
-	stateSubscriber *eventbus.Subscriber[events.StateUpdateEvent]
-	eventBus        *events.Bus
-	eventClient     *eventbus.Client
-	logger          *slog.Logger
+	bridge         *accessory.Bridge
+	accessories    map[string]*AccessoryInfo
+	accessoryOrder []string
+	commands       chan devices.CommandEvent
+	deviceManager  *devices.Manager
+	eventBus       *events.Bus
+	eventClient    *eventbus.Client
+	logger         *slog.Logger
 
 	// Runtime info
 	ctx    context.Context
@@ -99,16 +98,15 @@ func NewHAPManager(
 	})
 
 	hm := &HAPManager{
-		bridge:          bridge,
-		accessories:     make(map[string]*AccessoryInfo),
-		accessoryOrder:  make([]string, 0, len(deviceConfigs)),
-		commands:        commands,
-		deviceManager:   deviceManager,
-		stateSubscriber: eventbus.Subscribe[events.StateUpdateEvent](client),
-		eventBus:        bus,
-		eventClient:     client,
-		logger:          logger,
-		ctx:             context.Background(),
+		bridge:         bridge,
+		accessories:    make(map[string]*AccessoryInfo),
+		accessoryOrder: make([]string, 0, len(deviceConfigs)),
+		commands:       commands,
+		deviceManager:  deviceManager,
+		eventBus:       bus,
+		eventClient:    client,
+		logger:         logger,
+		ctx:            context.Background(),
 	}
 
 	// Create accessory for each device
@@ -425,126 +423,121 @@ func (hm *HAPManager) GetAccessories() []*accessory.A {
 	return accessories
 }
 
-// UpdateState updates the HomeKit state for a device
+// UpdateState mirrors a device's state into its accessory. Fields the device
+// has never reported leave the characteristic at its default.
 //
 //nolint:errcheck // HAP characteristic SetValue errors are not actionable here
-func (hm *HAPManager) UpdateState(event events.StateUpdateEvent) {
-	accInfo, exists := hm.accessories[event.DeviceID]
+func (hm *HAPManager) UpdateState(deviceID string, st devices.State) {
+	accInfo, exists := hm.accessories[deviceID]
 	if !exists {
-		hm.logger.Debug("Accessory not found for device", "device_id", event.DeviceID)
+		hm.logger.Debug("Accessory not found for device", "device_id", deviceID)
 		return
 	}
 
-	// Update sensor values
-	if accInfo.Temperature != nil && event.Temperature != nil {
-		accInfo.Temperature.CurrentTemperature.SetValue(*event.Temperature)
+	if v, ok := st.Temperature.GetOk(); ok && accInfo.Temperature != nil {
+		accInfo.Temperature.CurrentTemperature.SetValue(v)
 	}
 
-	if accInfo.Humidity != nil && event.Humidity != nil {
-		accInfo.Humidity.CurrentRelativeHumidity.SetValue(*event.Humidity)
+	if v, ok := st.Humidity.GetOk(); ok && accInfo.Humidity != nil {
+		accInfo.Humidity.CurrentRelativeHumidity.SetValue(v)
 	}
 
-	if accInfo.Occupancy != nil && event.Occupancy != nil {
-		val := 0
-		if *event.Occupancy {
-			val = 1
+	if v, ok := st.Occupancy.GetOk(); ok && accInfo.Occupancy != nil {
+		accInfo.Occupancy.OccupancyDetected.SetValue(boolToInt(v))
+	}
+
+	if v, ok := st.Battery.GetOk(); ok && accInfo.Battery != nil {
+		accInfo.Battery.BatteryLevel.SetValue(v)
+		accInfo.Battery.StatusLowBattery.SetValue(boolToInt(v < 20))
+	}
+
+	// Z2M: true = closed. HAP: 0 = contact detected (closed), 1 = open.
+	if v, ok := st.Contact.GetOk(); ok && accInfo.Contact != nil {
+		accInfo.Contact.ContactSensorState.SetValue(boolToInt(!v))
+	}
+
+	// HAP: 0 = not detected, 1 = detected.
+	if v, ok := st.WaterLeak.GetOk(); ok && accInfo.Leak != nil {
+		accInfo.Leak.LeakDetected.SetValue(boolToInt(v))
+	}
+
+	if v, ok := st.Smoke.GetOk(); ok && accInfo.Smoke != nil {
+		accInfo.Smoke.SmokeDetected.SetValue(boolToInt(v))
+	}
+
+	if v, ok := st.On.GetOk(); ok {
+		if accInfo.Lightbulb != nil {
+			accInfo.Lightbulb.On.SetValue(v)
 		}
-		accInfo.Occupancy.OccupancyDetected.SetValue(val)
-	}
-
-	if accInfo.Battery != nil && event.Battery != nil {
-		accInfo.Battery.BatteryLevel.SetValue(*event.Battery)
-		// Set low battery status
-		lowBattery := 0
-		if *event.Battery < 20 {
-			lowBattery = 1
+		if accInfo.Outlet != nil {
+			accInfo.Outlet.On.SetValue(v)
 		}
-		accInfo.Battery.StatusLowBattery.SetValue(lowBattery)
-	}
-
-	// Update contact sensor (door/window)
-	// Z2M: true = closed, false = open
-	// HAP: 0 = DETECTED (closed), 1 = NOT_DETECTED (open)
-	if accInfo.Contact != nil && event.Contact != nil {
-		val := 1 // Open (not detected)
-		if *event.Contact {
-			val = 0 // Closed (detected)
+		if accInfo.Fan != nil {
+			accInfo.Fan.On.SetValue(v)
 		}
-		accInfo.Contact.ContactSensorState.SetValue(val)
 	}
 
-	// Update leak sensor
-	// HAP: 0 = NOT_DETECTED, 1 = DETECTED
-	if accInfo.Leak != nil && event.WaterLeak != nil {
-		val := 0
-		if *event.WaterLeak {
-			val = 1
-		}
-		accInfo.Leak.LeakDetected.SetValue(val)
+	if v, ok := st.Brightness.GetOk(); ok && accInfo.Brightness != nil {
+		accInfo.Brightness.SetValue(devices.Z2MBrightnessToHAP(v))
 	}
 
-	// Update smoke sensor
-	// HAP: 0 = NOT_DETECTED, 1 = DETECTED
-	if accInfo.Smoke != nil && event.Smoke != nil {
-		val := 0
-		if *event.Smoke {
-			val = 1
-		}
-		accInfo.Smoke.SmokeDetected.SetValue(val)
+	if v, ok := st.Hue.GetOk(); ok && accInfo.Hue != nil {
+		accInfo.Hue.SetValue(v)
 	}
 
-	// Update light values
-	if accInfo.Lightbulb != nil && event.On != nil {
-		accInfo.Lightbulb.On.SetValue(*event.On)
+	if v, ok := st.Saturation.GetOk(); ok && accInfo.Saturation != nil {
+		accInfo.Saturation.SetValue(v)
 	}
 
-	// Update outlet values
-	if accInfo.Outlet != nil && event.On != nil {
-		accInfo.Outlet.On.SetValue(*event.On)
+	if v, ok := st.ColorTemp.GetOk(); ok && accInfo.ColorTemperature != nil {
+		accInfo.ColorTemperature.SetValue(devices.ClampColorTemp(v))
 	}
 
-	if accInfo.Brightness != nil && event.Brightness != nil {
-		accInfo.Brightness.SetValue(*event.Brightness)
-	}
-
-	if accInfo.Hue != nil && event.Hue != nil {
-		accInfo.Hue.SetValue(*event.Hue)
-	}
-
-	if accInfo.Saturation != nil && event.Saturation != nil {
-		accInfo.Saturation.SetValue(*event.Saturation)
-	}
-
-	if accInfo.ColorTemperature != nil && event.ColorTemp != nil {
-		accInfo.ColorTemperature.SetValue(devices.ClampColorTemp(*event.ColorTemp))
-	}
-
-	// Update fan values
-	if accInfo.Fan != nil && event.On != nil {
-		accInfo.Fan.On.SetValue(*event.On)
-	}
-
-	if accInfo.FanRotation != nil && event.FanSpeed != nil {
-		accInfo.FanRotation.SetValue(float64(*event.FanSpeed))
+	if v, ok := st.FanSpeed.GetOk(); ok && accInfo.FanRotation != nil {
+		accInfo.FanRotation.SetValue(float64(v))
 	}
 
 	hm.outgoingUpdates.Add(1)
 	hm.lastActivity.Store(time.Now().Unix())
 
-	hm.logger.Debug("Updated HomeKit state",
-		"device_id", event.DeviceID,
-	)
+	hm.logger.Debug("Updated HomeKit state", "device_id", deviceID)
 }
 
-// Start begins processing state changes.
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+
+	return 0
+}
+
+// Start seeds every accessory from the current snapshot, so reports that
+// arrived before HomeKit started are not lost, then follows later changes.
 func (hm *HAPManager) Start(ctx context.Context) {
 	hm.ctx = ctx
-	go hm.ProcessStateChanges(ctx)
+
+	snap := hm.deviceManager.Snapshot()
+	for _, ds := range snap.All() {
+		hm.UpdateState(ds.Device.ID, ds.State)
+	}
+
+	go hm.follow(ctx, snap)
 }
 
-// Close releases subscriptions.
-func (hm *HAPManager) Close() {
-	hm.stateSubscriber.Close()
+func (hm *HAPManager) follow(ctx context.Context, snap *devices.Snapshot) {
+	for {
+		select {
+		case <-snap.Changed():
+		case <-ctx.Done():
+			return
+		}
+
+		next := hm.deviceManager.Snapshot()
+		for _, ds := range next.Since(snap.Version()) {
+			hm.UpdateState(ds.Device.ID, ds.State)
+		}
+		snap = next
+	}
 }
 
 func (hm *HAPManager) SetServer(s *hap.Server) {
@@ -553,18 +546,6 @@ func (hm *HAPManager) SetServer(s *hap.Server) {
 
 func (hm *HAPManager) SetStore(s hap.Store) {
 	hm.store = s
-}
-
-func (hm *HAPManager) ProcessStateChanges(ctx context.Context) {
-	for {
-		select {
-		case event := <-hm.stateSubscriber.Events():
-			hm.logger.Debug("Received state update event", "device_id", event.DeviceID)
-			hm.UpdateState(event)
-		case <-ctx.Done():
-			return
-		}
-	}
 }
 
 // dispatch records a HomeKit-originated command, hands it to the device

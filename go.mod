@@ -7,7 +7,7 @@ require (
 	github.com/brutella/hap v0.0.35
 	github.com/chasefleming/elem-go v0.36.0
 	github.com/kradalby/homekit-qr v0.0.0-20251117145710-0ea350a04eaa
-	github.com/kradalby/kra v0.0.0-20260925084146-404be82c1776
+	github.com/kradalby/kra v0.0.0-20260930190439-99c91a9be880
 	github.com/mochi-mqtt/server/v2 v2.7.9
 	github.com/prometheus/client_golang v1.24.1
 	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f

@@ -329,6 +329,7 @@ func Main() {
 	kraWeb.Handle("/toggle/", http.HandlerFunc(webServer.HandleToggle))
 	kraWeb.Handle("/brightness/", http.HandlerFunc(webServer.HandleBrightness))
 	kraWeb.Handle("/events", http.HandlerFunc(webServer.HandleSSE))
+	kraWeb.Handle("/assets/vendor/", http.HandlerFunc(webServer.HandleAssets))
 	kraWeb.Handle("/health", http.HandlerFunc(webServer.HandleHealth))
 	kraWeb.Handle("/qrcode", http.HandlerFunc(webServer.HandleQRCode))
 	kraWeb.Handle("/debug/eventbus", http.HandlerFunc(webServer.HandleEventBusDebug))

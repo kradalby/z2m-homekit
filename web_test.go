@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -353,4 +355,32 @@ func TestSSEConnectionStatusAgesWithoutReports(t *testing.T) {
 
 	// Ticks without a threshold crossing must not resend the card.
 	expectQuiet(t, events)
+}
+
+// The dashboard runs on LANs without internet, so every script it loads,
+// including the SSE extension behind live updates, must come from the binary.
+func TestPageLoadsOnlyLocalScripts(t *testing.T) {
+	ws, _ := newTestWebServer(t, climateSensors(1)...)
+	ws.hapPin = "00102003" // an empty pin renders a nil node; config forbids it
+
+	rec := httptest.NewRecorder()
+	ws.HandleIndex(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	srcs := regexp.MustCompile(`<script[^>]*\ssrc="([^"]*)"`).FindAllStringSubmatch(rec.Body.String(), -1)
+	if len(srcs) == 0 {
+		t.Fatal("page loads no scripts")
+	}
+	for _, m := range srcs {
+		src := m[1]
+		if u, err := url.Parse(src); err != nil || u.Scheme != "" || u.Host != "" || !strings.HasPrefix(u.Path, "/") {
+			t.Errorf("script %q is not served by this host", src)
+			continue
+		}
+
+		rec := httptest.NewRecorder()
+		ws.HandleAssets(rec, httptest.NewRequest(http.MethodGet, src, nil))
+		if ct := rec.Header().Get("Content-Type"); rec.Code != http.StatusOK || !strings.Contains(ct, "javascript") || rec.Body.Len() == 0 {
+			t.Errorf("GET %s = %d %q, %d bytes; want non-empty javascript", src, rec.Code, ct, rec.Body.Len())
+		}
+	}
 }

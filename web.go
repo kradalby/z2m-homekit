@@ -3,7 +3,7 @@ package z2mhomekit
 import (
 	"cmp"
 	"context"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +27,13 @@ import (
 
 //go:embed assets/style.css
 var cssContent string
+
+// Scripts ship in the binary so live updates work on a LAN without internet.
+//
+//go:embed assets/vendor
+var vendorFS embed.FS
+
+var vendorServer = http.FileServerFS(vendorFS)
 
 type deviceStateProvider interface {
 	Snapshot() *devices.Snapshot
@@ -186,12 +193,8 @@ func (ws *WebServer) renderPage(title string, content elem.Node) string {
 			elem.Meta(attrs.Props{attrs.Charset: "utf-8"}),
 			elem.Meta(attrs.Props{attrs.Name: "viewport", attrs.Content: "width=device-width, initial-scale=1"}),
 			elem.Title(attrs.Props{}, elem.Text(title)),
-			elem.Script(attrs.Props{
-				attrs.Src: "https://unpkg.com/htmx.org@2.0.11",
-			}),
-			elem.Script(attrs.Props{
-				attrs.Src: "https://unpkg.com/htmx-ext-sse@2.2.4/sse.js",
-			}),
+			elem.Script(attrs.Props{attrs.Src: "/assets/vendor/htmx.min.js"}),
+			elem.Script(attrs.Props{attrs.Src: "/assets/vendor/htmx-ext-sse.js"}),
 			elem.Style(attrs.Props{}, elem.Text(cssContent)),
 		),
 		elem.Body(attrs.Props{}, content),
@@ -716,6 +719,11 @@ func connectionStatus(lastSeen, now time.Time) (indicator, text string) {
 	default:
 		return "disconnected", text
 	}
+}
+
+// HandleAssets serves the vendored scripts under /assets/vendor/.
+func (ws *WebServer) HandleAssets(w http.ResponseWriter, r *http.Request) {
+	vendorServer.ServeHTTP(w, r)
 }
 
 // HandleIndex renders the main dashboard

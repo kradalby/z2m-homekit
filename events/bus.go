@@ -25,15 +25,15 @@ const (
 // eventbus.Publish panics when handed a closed client, so a publisher must not
 // be created per event: shutdown closes the clients while HAP and web are still
 // emitting their final connection-status events. Creating them once up front
-// turns that race into a no-op -- publishing on a closed Publisher is defined
-// to do nothing -- and keeps the hot state path off the bus's publisher set.
+// turns that race into a no-op: publishing on a closed Publisher is defined
+// to do nothing.
 type clientPublishers struct {
-	state  *eventbus.Publisher[StateUpdateEvent]
 	cmd    *eventbus.Publisher[CommandEvent]
 	status *eventbus.Publisher[ConnectionStatusEvent]
 }
 
-// Bus wraps tailscale's eventbus and provides helpers for publishing state updates.
+// Bus wraps tailscale's eventbus and provides helpers for publishing commands
+// and component status.
 type Bus struct {
 	bus     *eventbus.Bus
 	clients map[ClientName]*eventbus.Client
@@ -71,7 +71,6 @@ func New(logger *slog.Logger) (*Bus, error) {
 		client := b.bus.Client(string(name))
 		b.clients[name] = client
 		b.pubs[client] = clientPublishers{
-			state:  eventbus.Publish[StateUpdateEvent](client),
 			cmd:    eventbus.Publish[CommandEvent](client),
 			status: eventbus.Publish[ConnectionStatusEvent](client),
 		}
@@ -106,18 +105,6 @@ func (b *Bus) publishers(client *eventbus.Client) (clientPublishers, bool) {
 	p, ok := b.pubs[client]
 
 	return p, ok
-}
-
-// PublishStateUpdate emits a state update event for SSE consumers.
-func (b *Bus) PublishStateUpdate(client *eventbus.Client, event StateUpdateEvent) {
-	b.logger.Debug("publishing state update",
-		slog.String("device_id", event.DeviceID),
-		slog.String("source", event.Source),
-	)
-
-	if p, ok := b.publishers(client); ok {
-		p.state.Publish(event)
-	}
 }
 
 // PublishCommand emits a command event for metrics/debug consumers.

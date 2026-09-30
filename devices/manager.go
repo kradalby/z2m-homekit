@@ -11,7 +11,6 @@ import (
 	"time"
 
 	mqtt "github.com/mochi-mqtt/server/v2"
-	"tailscale.com/types/opt"
 	"tailscale.com/util/eventbus"
 
 	"github.com/kradalby/z2m-homekit/events"
@@ -19,17 +18,14 @@ import (
 
 // Manager owns all Zigbee device state and publishes it as snapshots.
 type Manager struct {
-	byTopic          map[string]Device // fixed at construction
-	snap             atomic.Pointer[Snapshot]
-	writeMu          sync.Mutex // serialises load-apply-store so no update is lost
-	commands         chan CommandEvent
-	statePublisher   *eventbus.Publisher[StateChangedEvent]
-	errorPublisher   *eventbus.Publisher[ErrorEvent]
-	stateSubscriber  *eventbus.Subscriber[StateChangedEvent]
-	eventBus         *events.Bus
-	stateEventClient *eventbus.Client
-	mqttServer       *mqtt.Server
-	logger           *slog.Logger
+	byTopic         map[string]Device // fixed at construction
+	snap            atomic.Pointer[Snapshot]
+	writeMu         sync.Mutex // serialises load-apply-store so no update is lost
+	commands        chan CommandEvent
+	errorPublisher  *eventbus.Publisher[ErrorEvent]
+	stateSubscriber *eventbus.Subscriber[StateChangedEvent]
+	mqttServer      *mqtt.Server
+	logger          *slog.Logger
 }
 
 // NewManager creates a new device manager.
@@ -46,15 +42,12 @@ func NewManager(
 	}
 
 	dm := &Manager{
-		byTopic:          make(map[string]Device, len(deviceConfigs)),
-		commands:         commands,
-		statePublisher:   eventbus.Publish[StateChangedEvent](client),
-		errorPublisher:   eventbus.Publish[ErrorEvent](client),
-		stateSubscriber:  eventbus.Subscribe[StateChangedEvent](client),
-		eventBus:         bus,
-		stateEventClient: client,
-		mqttServer:       mqttServer,
-		logger:           logger,
+		byTopic:         make(map[string]Device, len(deviceConfigs)),
+		commands:        commands,
+		errorPublisher:  eventbus.Publish[ErrorEvent](client),
+		stateSubscriber: eventbus.Subscribe[StateChangedEvent](client),
+		mqttServer:      mqttServer,
+		logger:          logger,
 	}
 
 	initial := make(map[string]DeviceState, len(deviceConfigs))
@@ -70,10 +63,6 @@ func NewManager(
 		)
 	}
 	dm.snap.Store(newSnapshot(1, initial))
-
-	for id, ds := range initial {
-		dm.publishStateUpdate("initial", id, ds.State)
-	}
 
 	return dm, nil
 }
@@ -298,14 +287,9 @@ func (dm *Manager) ProcessStateEvents(ctx context.Context) {
 	for {
 		select {
 		case event := <-dm.stateSubscriber.Events():
-			ds, ok := dm.Update(event.DeviceID, event.Reading, event.At)
-			if !ok {
+			if _, ok := dm.Update(event.DeviceID, event.Reading, event.At); !ok {
 				dm.logger.Warn("Received state event for unknown device", "device_id", event.DeviceID)
-				continue
 			}
-
-			dm.logger.Debug("Merged state from eventbus", "device_id", event.DeviceID)
-			dm.publishStateUpdate("eventbus", event.DeviceID, ds.State)
 
 		case <-ctx.Done():
 			return
@@ -344,75 +328,4 @@ func (dm *Manager) Update(deviceID string, r Reading, at time.Time) (DeviceState
 func (dm *Manager) DeviceByTopic(topic string) (Device, bool) {
 	d, ok := dm.byTopic[topic]
 	return d, ok
-}
-
-func (dm *Manager) publishStateUpdate(source, deviceID string, state State) {
-	if dm.eventBus == nil || dm.stateEventClient == nil {
-		return
-	}
-
-	name := deviceID
-	if ds, ok := dm.Snapshot().Get(deviceID); ok {
-		name = ds.Device.Name
-	}
-
-	connectionState, connectionNote := connectionStatus(state.LastSeen)
-
-	// Convert brightness to HAP scale for events
-	var brightnessHAP *int
-	if b, ok := state.Brightness.GetOk(); ok {
-		brightnessHAP = new(Z2MBrightnessToHAP(b))
-	}
-
-	dm.eventBus.PublishStateUpdate(dm.stateEventClient, events.StateUpdateEvent{
-		Timestamp:       time.Now(),
-		Source:          source,
-		DeviceID:        deviceID,
-		Name:            name,
-		On:              ptr(state.On),
-		Brightness:      brightnessHAP,
-		Hue:             ptr(state.Hue),
-		Saturation:      ptr(state.Saturation),
-		ColorTemp:       ptr(state.ColorTemp),
-		Temperature:     ptr(state.Temperature),
-		Humidity:        ptr(state.Humidity),
-		Battery:         ptr(state.Battery),
-		Occupancy:       ptr(state.Occupancy),
-		Illuminance:     ptr(state.Illuminance),
-		Pressure:        ptr(state.Pressure),
-		Contact:         ptr(state.Contact),
-		WaterLeak:       ptr(state.WaterLeak),
-		Smoke:           ptr(state.Smoke),
-		Tamper:          ptr(state.Tamper),
-		FanSpeed:        ptr(state.FanSpeed),
-		LinkQuality:     state.LinkQuality.Get(),
-		LastSeen:        state.LastSeen,
-		LastUpdated:     state.LastSeen,
-		ConnectionState: connectionState,
-		ConnectionNote:  connectionNote,
-	})
-}
-
-func ptr[T any](v opt.Value[T]) *T {
-	if x, ok := v.GetOk(); ok {
-		return &x
-	}
-
-	return nil
-}
-
-func connectionStatus(lastSeen time.Time) (string, string) {
-	if lastSeen.IsZero() {
-		return "disconnected", "Never seen"
-	}
-
-	since := time.Since(lastSeen)
-	switch {
-	case since < 30*time.Second:
-		return "connected", fmt.Sprintf("Last seen: %s ago", since.Round(time.Second))
-	case since < 60*time.Second:
-		return "stale", fmt.Sprintf("Last seen: %s ago", since.Round(time.Second))
-	default:
-		return "disconnected", fmt.Sprintf("Last seen: %s ago", since.Round(time.Second))
-	}
 }

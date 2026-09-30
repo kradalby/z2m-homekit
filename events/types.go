@@ -4,43 +4,6 @@ import (
 	"time"
 )
 
-// StateUpdateEvent carries device state for SSE subscribers and HAP updates.
-type StateUpdateEvent struct {
-	Timestamp time.Time `json:"timestamp"`
-	Source    string    `json:"source"`
-	DeviceID  string    `json:"device_id"`
-	Name      string    `json:"name"`
-
-	// Sensor values (pointers to distinguish unset from zero)
-	Temperature *float64 `json:"temperature,omitempty"`
-	Humidity    *float64 `json:"humidity,omitempty"`
-	Battery     *int     `json:"battery,omitempty"`
-	Occupancy   *bool    `json:"occupancy,omitempty"`
-	Illuminance *int     `json:"illuminance,omitempty"`
-	Pressure    *float64 `json:"pressure,omitempty"`
-	Contact     *bool    `json:"contact,omitempty"`    // true = closed, false = open
-	WaterLeak   *bool    `json:"water_leak,omitempty"` // true = leak detected
-	Smoke       *bool    `json:"smoke,omitempty"`      // true = smoke detected
-	Tamper      *bool    `json:"tamper,omitempty"`     // true = tampered
-
-	// Light values
-	On         *bool    `json:"on,omitempty"`
-	Brightness *int     `json:"brightness,omitempty"` // 0-100 (HAP scale)
-	Hue        *float64 `json:"hue,omitempty"`        // 0-360
-	Saturation *float64 `json:"saturation,omitempty"` // 0-100
-	ColorTemp  *int     `json:"color_temp,omitempty"` // mireds
-
-	// Fan values
-	FanSpeed *int `json:"fan_speed,omitempty"` // 0-100 (percentage)
-
-	// Connectivity
-	LinkQuality     int       `json:"link_quality"`
-	LastSeen        time.Time `json:"last_seen"`
-	LastUpdated     time.Time `json:"last_updated"`
-	ConnectionState string    `json:"connection_state"`
-	ConnectionNote  string    `json:"connection_note"`
-}
-
 // CommandType represents supported device commands.
 type CommandType string
 

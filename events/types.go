@@ -68,68 +68,6 @@ type CommandEvent struct {
 	ColorTemp  *int     `json:"color_temp,omitempty"`
 }
 
-// Equals determines whether two events carry the same logical state (ignoring timestamp/source).
-func (e StateUpdateEvent) Equals(other StateUpdateEvent) bool {
-	return e.DeviceID == other.DeviceID &&
-		e.Name == other.Name &&
-		ptrBoolEqual(e.On, other.On) &&
-		ptrIntEqual(e.Brightness, other.Brightness) &&
-		ptrFloatEqual(e.Hue, other.Hue) &&
-		ptrFloatEqual(e.Saturation, other.Saturation) &&
-		ptrIntEqual(e.ColorTemp, other.ColorTemp) &&
-		ptrFloatEqual(e.Temperature, other.Temperature) &&
-		ptrFloatEqual(e.Humidity, other.Humidity) &&
-		ptrIntEqual(e.Battery, other.Battery) &&
-		ptrBoolEqual(e.Occupancy, other.Occupancy) &&
-		ptrIntEqual(e.Illuminance, other.Illuminance) &&
-		ptrFloatEqual(e.Pressure, other.Pressure) &&
-		ptrBoolEqual(e.Contact, other.Contact) &&
-		ptrBoolEqual(e.WaterLeak, other.WaterLeak) &&
-		ptrBoolEqual(e.Smoke, other.Smoke) &&
-		ptrBoolEqual(e.Tamper, other.Tamper) &&
-		ptrIntEqual(e.FanSpeed, other.FanSpeed) &&
-		e.LinkQuality == other.LinkQuality &&
-		e.LastSeen.Equal(other.LastSeen) &&
-		e.LastUpdated.Equal(other.LastUpdated) &&
-		e.ConnectionState == other.ConnectionState &&
-		e.ConnectionNote == other.ConnectionNote
-}
-
-func ptrBoolEqual(a, b *bool) bool {
-	if a == nil && b == nil {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-	return *a == *b
-}
-
-func ptrIntEqual(a, b *int) bool {
-	if a == nil && b == nil {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-	return *a == *b
-}
-
-func ptrFloatEqual(a, b *float64) bool {
-	if a == nil && b == nil {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-	const eps = 0.001
-	diff := *a - *b
-	if diff < 0 {
-		diff = -diff
-	}
-	return diff < eps
-}
-
 // ConnectionStatusEvent conveys component lifecycle information (web, HAP, MQTT, etc.).
 type ConnectionStatusEvent struct {
 	Timestamp  time.Time        `json:"timestamp"`

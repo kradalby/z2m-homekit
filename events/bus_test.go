@@ -85,52 +85,6 @@ func TestBusClientUnknown(t *testing.T) {
 	}
 }
 
-func TestStateUpdateEventEquals(t *testing.T) {
-	temp1 := 22.5
-	temp2 := 23.0
-	humidity := 50.0
-
-	tests := []struct {
-		name  string
-		a, b  StateUpdateEvent
-		equal bool
-	}{
-		{
-			name:  "same device same values",
-			a:     StateUpdateEvent{DeviceID: "test", Temperature: &temp1},
-			b:     StateUpdateEvent{DeviceID: "test", Temperature: &temp1},
-			equal: true,
-		},
-		{
-			name:  "same device different temperature",
-			a:     StateUpdateEvent{DeviceID: "test", Temperature: &temp1},
-			b:     StateUpdateEvent{DeviceID: "test", Temperature: &temp2},
-			equal: false,
-		},
-		{
-			name:  "different device",
-			a:     StateUpdateEvent{DeviceID: "test1", Temperature: &temp1},
-			b:     StateUpdateEvent{DeviceID: "test2", Temperature: &temp1},
-			equal: false,
-		},
-		{
-			name:  "one has humidity other doesn't",
-			a:     StateUpdateEvent{DeviceID: "test", Temperature: &temp1, Humidity: &humidity},
-			b:     StateUpdateEvent{DeviceID: "test", Temperature: &temp1},
-			equal: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := tt.a.Equals(tt.b)
-			if got != tt.equal {
-				t.Errorf("Equals() = %v, want %v", got, tt.equal)
-			}
-		})
-	}
-}
-
 // Publishers used to be created per event, and eventbus.Publish panics when
 // handed a closed client. Shutdown closes the clients while HAP and web are
 // still emitting their final connection-status events, so publishing after

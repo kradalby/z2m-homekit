@@ -58,7 +58,7 @@ func eventually(t *testing.T, what string, cond func() bool) {
 // sensor's next report, which can be hours away.
 func TestHAPSeedsFromSnapshot(t *testing.T) {
 	bus := newTestBus(t)
-	cfg := devices.Device{ID: "leak", Name: "Leak", Topic: "leak", Type: devices.DeviceTypeLeakSensor}
+	cfg := devices.Device{ID: "leak", Name: "Leak", Topic: "leak", Type: devices.DeviceTypeLeakSensor, HomeKit: true}
 	dm := newTestDeviceManager(t, bus, cfg)
 
 	report(t, dm, "leak", func(r *devices.Reading) { r.WaterLeak.Set(true) })
@@ -74,10 +74,10 @@ func TestHAPSeedsFromSnapshot(t *testing.T) {
 func TestHAPFollowsSnapshot(t *testing.T) {
 	bus := newTestBus(t)
 	cfg := []devices.Device{
-		{ID: "door", Name: "Door", Topic: "door", Type: devices.DeviceTypeContactSensor},
+		{ID: "door", Name: "Door", Topic: "door", Type: devices.DeviceTypeContactSensor, HomeKit: true},
 		{
 			ID: "lamp", Name: "Lamp", Topic: "lamp", Type: devices.DeviceTypeLightbulb,
-			Features: devices.DeviceFeatures{Brightness: true},
+			Features: devices.DeviceFeatures{Brightness: true}, HomeKit: true,
 		},
 	}
 	dm := newTestDeviceManager(t, bus, cfg...)

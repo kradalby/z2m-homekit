@@ -167,7 +167,10 @@ func newSensorManager(t *testing.T, ids ...string) *Manager {
 
 	var cfg []Device
 	for _, id := range ids {
-		cfg = append(cfg, Device{ID: id, Name: id, Topic: id, Type: DeviceTypeClimateSensor})
+		cfg = append(cfg, Device{
+			ID: id, Name: id, Topic: id, Type: DeviceTypeClimateSensor,
+			HomeKit: true, Web: true,
+		})
 	}
 
 	dm, err := NewManager(cfg, nil, bus, nil, testLogger())
@@ -274,22 +277,50 @@ func TestSnapshotReadersCannotMutate(t *testing.T) {
 			t.Errorf("Snapshot.%s is exported; a reader could mutate the shared snapshot", f.Name)
 		}
 	}
+	assertPlainValue(t, "DeviceState", reflect.TypeFor[DeviceState]())
 
 	dm := newSensorManager(t, "a", "b")
 	snap := dm.Snapshot()
 
 	all := snap.All()
 	all[0].State.LinkQuality.Set(99)
+	all[0].Device.HomeKit = false
+	all[0].Device.Web = false
 	ds, _ := snap.Get("a")
 	ds.State.LinkQuality.Set(99)
+	ds.Device.HomeKit = false
+	ds.Device.Web = false
 
 	var r Reading
 	r.Temperature.Set(21)
 	dm.Update("b", r, time.Now())
 
 	for name, s := range map[string]*Snapshot{"held": snap, "later": dm.Snapshot()} {
-		if a, _ := s.Get("a"); a.State.LinkQuality.IsSet() {
-			t.Errorf("%s snapshot: reader's write to device a leaked in", name)
+		a, _ := s.Get("a")
+		if a.State.LinkQuality.IsSet() || !a.Device.HomeKit || !a.Device.Web {
+			t.Errorf("%s snapshot: reader's write to device a leaked in: %+v", name, a)
 		}
+	}
+}
+
+// assertPlainValue fails if a copy of typ could share memory with the
+// original, since readers get copies of snapshot values.
+func assertPlainValue(t *testing.T, path string, typ reflect.Type) {
+	t.Helper()
+
+	if typ == reflect.TypeFor[time.Time]() {
+		return // its *Location is immutable
+	}
+	switch typ.Kind() {
+	case reflect.Struct:
+		for i := range typ.NumField() {
+			f := typ.Field(i)
+			assertPlainValue(t, path+"."+f.Name, f.Type)
+		}
+	case reflect.Array:
+		assertPlainValue(t, path+"[]", typ.Elem())
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Chan,
+		reflect.Func, reflect.Interface, reflect.UnsafePointer:
+		t.Errorf("%s is a %s; a reader's copy would alias the snapshot", path, typ.Kind())
 	}
 }

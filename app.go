@@ -206,7 +206,6 @@ func Main() {
 	// Create HAP manager
 	hapManager := NewHAPManager(deviceCfg.Devices, cfg.BridgeName, commands, deviceManager, eventBus, logger)
 	hapManager.Start(ctx)
-	defer hapManager.Close()
 
 	accessories := hapManager.GetAccessories()
 	if len(accessories) == 0 {

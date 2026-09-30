@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"net/http"
@@ -34,6 +35,15 @@ var cssContent string
 var vendorFS embed.FS
 
 var vendorServer = http.FileServerFS(vendorFS)
+
+// htmx drops 4xx/5xx bodies by default; swapping them lets a failed command
+// show its error. The other rules restate the defaults.
+const htmxConfig = `'{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}]}'`
+
+// commandErrorID is where controls put a failed command's error. Cards are
+// never a target: SSE alone updates them, so no command response can land
+// after a newer card and restore an older state.
+const commandErrorID = "command-error"
 
 type deviceStateProvider interface {
 	Snapshot() *devices.Snapshot
@@ -193,6 +203,7 @@ func (ws *WebServer) renderPage(title string, content elem.Node) string {
 			elem.Meta(attrs.Props{attrs.Charset: "utf-8"}),
 			elem.Meta(attrs.Props{attrs.Name: "viewport", attrs.Content: "width=device-width, initial-scale=1"}),
 			elem.Title(attrs.Props{}, elem.Text(title)),
+			elem.Meta(attrs.Props{attrs.Name: "htmx-config", attrs.Content: htmxConfig}),
 			elem.Script(attrs.Props{attrs.Src: "/assets/vendor/htmx.min.js"}),
 			elem.Script(attrs.Props{attrs.Src: "/assets/vendor/htmx-ext-sse.js"}),
 			elem.Style(attrs.Props{}, elem.Text(cssContent)),
@@ -202,8 +213,8 @@ func (ws *WebServer) renderPage(title string, content elem.Node) string {
 	return page.Render()
 }
 
-// renderDeviceCard is the only card renderer: the page, htmx responses and
-// the SSE stream all use it.
+// renderDeviceCard is the only card renderer: the page and the SSE stream
+// both use it.
 func (ws *WebServer) renderDeviceCard(deviceID string, info devices.Device, state devices.State, now time.Time) elem.Node {
 	statusClass := "sensor"
 	icon := ws.getDeviceIcon(info.Type)
@@ -249,7 +260,7 @@ func (ws *WebServer) renderDeviceCard(deviceID string, info devices.Device, stat
 // renderDeviceSlot wraps a card in the element that listens for its SSE
 // event. htmx registers that listener only when it processes the element, a
 // settle delay after swapping it in, so replacing the element would drop
-// events arriving in between; swaps fill the slot instead.
+// events arriving in between; SSE fills the slot instead.
 func renderDeviceSlot(deviceID string, card elem.Node) elem.Node {
 	return elem.Div(
 		attrs.Props{
@@ -535,7 +546,7 @@ func (ws *WebServer) renderFan(deviceID string, info devices.Device, state devic
 	cardChildren = append(cardChildren, elem.Form(
 		attrs.Props{
 			"hx-post":   "/toggle/" + deviceID,
-			"hx-target": "#" + slotID(deviceID),
+			"hx-target": "#" + commandErrorID,
 			"hx-swap":   "innerHTML",
 		},
 		elem.Input(attrs.Props{attrs.Type: "hidden", attrs.Name: "action", attrs.Value: buttonAction, "data-role": "action-input"}),
@@ -597,7 +608,7 @@ func (ws *WebServer) renderLightbulb(deviceID string, info devices.Device, state
 					"data-role":      "brightness-slider",
 					"hx-post":        "/brightness/" + deviceID,
 					"hx-trigger":     "change",
-					"hx-target":      "#" + slotID(deviceID),
+					"hx-target":      "#" + commandErrorID,
 					"hx-swap":        "innerHTML",
 					"hx-include":     "this",
 				}),
@@ -646,7 +657,7 @@ func (ws *WebServer) renderLightbulb(deviceID string, info devices.Device, state
 	cardChildren = append(cardChildren, elem.Form(
 		attrs.Props{
 			"hx-post":   "/toggle/" + deviceID,
-			"hx-target": "#" + slotID(deviceID),
+			"hx-target": "#" + commandErrorID,
 			"hx-swap":   "innerHTML",
 		},
 		elem.Input(attrs.Props{attrs.Type: "hidden", attrs.Name: "action", attrs.Value: buttonAction, "data-role": "action-input"}),
@@ -693,7 +704,7 @@ func (ws *WebServer) renderOutlet(deviceID string, info devices.Device, state de
 	cardChildren = append(cardChildren, elem.Form(
 		attrs.Props{
 			"hx-post":   "/toggle/" + deviceID,
-			"hx-target": "#" + slotID(deviceID),
+			"hx-target": "#" + commandErrorID,
 			"hx-swap":   "innerHTML",
 		},
 		elem.Input(attrs.Props{attrs.Type: "hidden", attrs.Name: "action", attrs.Value: buttonAction, "data-role": "action-input"}),
@@ -808,6 +819,7 @@ func (ws *WebServer) HandleIndex(w http.ResponseWriter, r *http.Request) {
 		elem.H1(attrs.Props{}, elem.Text("Zigbee2MQTT HomeKit Bridge")),
 		elem.P(attrs.Props{}, elem.Text(fmt.Sprintf("Managing %d devices", snapshot.Len()))),
 		homekitSection,
+		elem.Div(attrs.Props{attrs.ID: commandErrorID, attrs.Class: "command-error", attrs.Role: "alert"}),
 		elem.Div(attrs.Props{attrs.Class: "devices-grid", "hx-ext": "sse", "sse-connect": "/events"}, deviceElements...),
 		elem.Div(attrs.Props{attrs.Class: "events"},
 			elem.H2(attrs.Props{}, elem.Text("Recent Events")),
@@ -847,23 +859,12 @@ func (ws *WebServer) HandleToggle(w http.ResponseWriter, r *http.Request) {
 
 	if err := ws.controller.SetPower(r.Context(), deviceID, on); err != nil {
 		ws.logger.Error("Failed to set power", "device_id", deviceID, "error", err)
-		http.Error(w, "Failed to set power", http.StatusInternalServerError)
+		ws.commandFailed(w, ds.Device, "set power")
 		return
 	}
 
 	ws.LogEvent(fmt.Sprintf("Web UI: Toggle %s -> %v", deviceID, on))
-
-	if r.Header.Get("HX-Request") == "true" {
-		ds, _ = ws.deviceProvider.Snapshot().Get(deviceID)
-
-		w.Header().Set("Content-Type", "text/html")
-		if _, err := fmt.Fprint(w, ws.renderDeviceCard(deviceID, ds.Device, ds.State, ws.now()).Render()); err != nil {
-			ws.logger.Error("Failed to write response", slog.Any("error", err))
-		}
-		return
-	}
-
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	commandDone(w, r)
 }
 
 // HandleBrightness handles brightness slider requests
@@ -899,23 +900,30 @@ func (ws *WebServer) HandleBrightness(w http.ResponseWriter, r *http.Request) {
 
 	if err := ws.controller.SetBrightness(r.Context(), deviceID, brightness); err != nil {
 		ws.logger.Error("Failed to set brightness", "device_id", deviceID, "error", err)
-		http.Error(w, "Failed to set brightness", http.StatusInternalServerError)
+		ws.commandFailed(w, ds.Device, "set brightness")
 		return
 	}
 
 	ws.LogEvent(fmt.Sprintf("Web UI: Brightness %s -> %d%%", deviceID, brightness))
+	commandDone(w, r)
+}
 
+// commandDone answers an accepted command. htmx gets no content: SSE delivers
+// the resulting card once the device reports.
+func commandDone(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("HX-Request") == "true" {
-		ds, _ = ws.deviceProvider.Snapshot().Get(deviceID)
-
-		w.Header().Set("Content-Type", "text/html")
-		if _, err := fmt.Fprint(w, ws.renderDeviceCard(deviceID, ds.Device, ds.State, ws.now()).Render()); err != nil {
-			ws.logger.Error("Failed to write response", slog.Any("error", err))
-		}
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// commandFailed reports a failed command for htmx to show. The error outlives
+// later successes, which swap nothing, so it says when and for which device.
+func (ws *WebServer) commandFailed(w http.ResponseWriter, d devices.Device, what string) {
+	msg := fmt.Sprintf("%s %s: failed to %s", ws.now().Format(time.TimeOnly), d.Name, what)
+	http.Error(w, html.EscapeString(msg), http.StatusInternalServerError)
 }
 
 // HandleEventBusDebug renders a simple diagnostic view of device and component state.
@@ -983,8 +991,9 @@ func (ws *WebServer) HandleEventBusDebug(w http.ResponseWriter, r *http.Request)
 
 // HandleSSE streams each web-visible device's rendered card whenever it
 // changes. Every wake renders from the latest snapshot, so a slow client
-// skips intermediate states rather than losing the newest one, and it can
-// never see an older state after a newer one.
+// skips intermediate states rather than losing the newest one, and, as the
+// only writer of cards after page load, it can never show an older state
+// after a newer one.
 func (ws *WebServer) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)

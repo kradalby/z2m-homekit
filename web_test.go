@@ -3,6 +3,8 @@ package z2mhomekit
 import (
 	"bufio"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -404,12 +406,8 @@ func startTags(s string) []map[string]string {
 	return tags
 }
 
-// htmx registers an sse-swap listener only when it processes the element, a
-// settle delay after swapping it in, so replacing a listening element drops
-// the events that arrive in between. Listeners must sit on slots that every
-// swap fills rather than replaces.
-func TestSwapsKeepSSEListeners(t *testing.T) {
-	cfg := []devices.Device{
+func controlDevices() []devices.Device {
+	return []devices.Device{
 		{
 			ID: "lamp", Name: "Lamp", Topic: "lamp", Type: devices.DeviceTypeLightbulb,
 			Features: devices.DeviceFeatures{Brightness: true}, Web: true,
@@ -417,6 +415,12 @@ func TestSwapsKeepSSEListeners(t *testing.T) {
 		{ID: "plug", Name: "Plug", Topic: "plug", Type: devices.DeviceTypeOutlet, Web: true},
 		{ID: "fan", Name: "Fan", Topic: "fan", Type: devices.DeviceTypeFan, Web: true},
 	}
+}
+
+// pageAndCards returns the dashboard and every card the SSE stream sends.
+func pageAndCards(t *testing.T, cfg []devices.Device) (*WebServer, string, cards) {
+	t.Helper()
+
 	ws, dm := newTestWebServer(t, cfg...)
 	ws.hapPin = "00102003"
 	report(t, dm, "lamp", func(r *devices.Reading) {
@@ -427,38 +431,166 @@ func TestSwapsKeepSSEListeners(t *testing.T) {
 	rec := httptest.NewRecorder()
 	ws.HandleIndex(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 
-	slots := map[string]bool{}
-	for _, a := range startTags(rec.Body.String()) {
-		if ev, ok := a["sse-swap"]; ok {
-			if a["hx-swap"] != "innerHTML" || a["id"] != ev {
-				t.Errorf("listener %v: want id %q and hx-swap innerHTML", a, ev)
-			}
-			slots["#"+a["id"]] = true
-		}
-	}
-	if len(slots) != len(cfg) {
-		t.Fatalf("page has %d listener slots, want %d", len(slots), len(cfg))
-	}
-
 	events := connectSSE(t, ws)
 	got := cards{}
 	got.await(t, events, "every card", func(c cards) bool { return len(c) == len(cfg) })
 
-	controls := 0
+	return ws, rec.Body.String(), got
+}
+
+// htmx registers an sse-swap listener only when it processes the element, a
+// settle delay after swapping it in, so replacing a listening element drops
+// the events that arrive in between. Listeners must sit on slots that SSE
+// fills rather than replaces.
+func TestSwapsKeepSSEListeners(t *testing.T) {
+	cfg := controlDevices()
+	_, page, got := pageAndCards(t, cfg)
+
+	slots := 0
+	for _, a := range startTags(page) {
+		if ev, ok := a["sse-swap"]; ok {
+			slots++
+			if a["hx-swap"] != "innerHTML" || a["id"] != ev {
+				t.Errorf("listener %v: want id %q and hx-swap innerHTML", a, ev)
+			}
+		}
+	}
+	if slots != len(cfg) {
+		t.Fatalf("page has %d listener slots, want %d", slots, len(cfg))
+	}
+
 	for name, card := range got {
 		for _, a := range startTags(card) {
 			if _, ok := a["sse-swap"]; ok {
 				t.Errorf("%s: swapped-in card carries a listener: %v", name, a)
 			}
-			if target, ok := a["hx-target"]; ok {
-				controls++
-				if !slots[target] || a["hx-swap"] != "innerHTML" {
-					t.Errorf("%s: control swaps %q into %q, want innerHTML into a slot", name, a["hx-swap"], target)
-				}
+		}
+	}
+}
+
+// A command response rendered before the device confirms can reach the
+// browser after a newer SSE card; swapped into the card, it would restore the
+// older state, which SSE then has no reason to resend. Controls must target
+// something outside every card, leaving cards to SSE alone.
+func TestControlsNeverSwapCards(t *testing.T) {
+	cfg := controlDevices()
+	_, page, got := pageAndCards(t, cfg)
+
+	onPage, inCards := map[string]bool{}, map[string]bool{}
+	for _, a := range startTags(page) {
+		if id, ok := a["id"]; ok {
+			onPage[id] = true
+		}
+		if _, ok := a["sse-swap"]; ok {
+			inCards[a["id"]] = true // the slot around a card
+		}
+	}
+	for _, card := range got {
+		for _, a := range startTags(card) {
+			if id, ok := a["id"]; ok {
+				inCards[id] = true
+			}
+		}
+	}
+
+	controls := 0
+	for name, card := range got {
+		for _, a := range startTags(card) {
+			if _, ok := a["hx-post"]; !ok {
+				continue
+			}
+			controls++
+			// No target means the control itself, which is inside the card.
+			id, ok := strings.CutPrefix(a["hx-target"], "#")
+			if !ok || !onPage[id] || inCards[id] {
+				t.Errorf("%s: control %v targets %q, want an element outside every card", name, a["hx-post"], a["hx-target"])
 			}
 		}
 	}
 	if controls < len(cfg) {
 		t.Errorf("found %d controls, want at least one per device", controls)
+	}
+}
+
+type fakeController struct{ err error }
+
+func (f fakeController) SetPower(context.Context, string, bool) error     { return f.err }
+func (f fakeController) SetBrightness(context.Context, string, int) error { return f.err }
+
+func commandRequests() map[string]*http.Request {
+	post := func(path string, form url.Values) *http.Request {
+		r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("HX-Request", "true")
+		return r
+	}
+
+	return map[string]*http.Request{
+		"power":      post("/toggle/lamp", url.Values{"action": {"on"}}),
+		"brightness": post("/brightness/lamp", url.Values{"brightness": {"50"}}),
+	}
+}
+
+func serveCommand(ws *WebServer, name string, r *http.Request) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	if name == "power" {
+		ws.HandleToggle(rec, r)
+	} else {
+		ws.HandleBrightness(rec, r)
+	}
+
+	return rec
+}
+
+// SSE delivers the resulting card once the device reports; see
+// TestControlsNeverSwapCards.
+func TestCommandSuccessSwapsNothing(t *testing.T) {
+	ws, _ := newTestWebServer(t, controlDevices()...)
+	ws.controller = fakeController{}
+
+	for name, r := range commandRequests() {
+		rec := serveCommand(ws, name, r)
+		if rec.Code != http.StatusNoContent || rec.Body.Len() != 0 {
+			t.Errorf("%s: got %d with %q, want 204 and no body", name, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// With cards left to SSE, a failed command changes no card, so the page must
+// show the error itself.
+func TestCommandErrorsReachThePage(t *testing.T) {
+	ws, page, _ := pageAndCards(t, controlDevices())
+	ws.controller = fakeController{err: errors.New("broker down")}
+
+	for name, r := range commandRequests() {
+		rec := serveCommand(ws, name, r)
+		if rec.Code < 500 || !strings.Contains(rec.Body.String(), "Lamp: failed to set "+name) {
+			t.Errorf("%s: got %d %q, want 5xx naming the device", name, rec.Code, rec.Body.String())
+		}
+	}
+
+	// htmx drops error bodies unless configured to swap them.
+	m := regexp.MustCompile(`<meta content='([^']*)' name="htmx-config"`).FindStringSubmatch(page)
+	if m == nil {
+		t.Fatal("page has no htmx-config")
+	}
+	var cfg struct {
+		ResponseHandling []struct {
+			Code string
+			Swap bool
+		}
+	}
+	if err := json.Unmarshal([]byte(m[1]), &cfg); err != nil {
+		t.Fatalf("htmx-config: %v", err)
+	}
+	swaps := false
+	for _, rule := range cfg.ResponseHandling {
+		if regexp.MustCompile("^" + rule.Code + "$").MatchString("500") {
+			swaps = rule.Swap
+			break
+		}
+	}
+	if !swaps {
+		t.Errorf("htmx-config %s does not swap a 500", m[1])
 	}
 }

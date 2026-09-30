@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	mqtt "github.com/mochi-mqtt/server/v2"
@@ -15,11 +17,11 @@ import (
 	"github.com/kradalby/z2m-homekit/events"
 )
 
-// Manager manages all Zigbee device state.
+// Manager owns all Zigbee device state and publishes it as snapshots.
 type Manager struct {
-	devices          map[string]*Info
-	states           map[string]*State
-	mu               sync.RWMutex
+	byTopic          map[string]Device // fixed at construction
+	snap             atomic.Pointer[Snapshot]
+	writeMu          sync.Mutex // serialises load-apply-store so no update is lost
 	commands         chan CommandEvent
 	statePublisher   *eventbus.Publisher[StateChangedEvent]
 	errorPublisher   *eventbus.Publisher[ErrorEvent]
@@ -28,11 +30,6 @@ type Manager struct {
 	stateEventClient *eventbus.Client
 	mqttServer       *mqtt.Server
 	logger           *slog.Logger
-}
-
-// Info holds the configuration for a device.
-type Info struct {
-	Config Device
 }
 
 // NewManager creates a new device manager.
@@ -49,8 +46,7 @@ func NewManager(
 	}
 
 	dm := &Manager{
-		devices:          make(map[string]*Info),
-		states:           make(map[string]*State),
+		byTopic:          make(map[string]Device, len(deviceConfigs)),
 		commands:         commands,
 		statePublisher:   eventbus.Publish[StateChangedEvent](client),
 		errorPublisher:   eventbus.Publish[ErrorEvent](client),
@@ -61,14 +57,10 @@ func NewManager(
 		logger:           logger,
 	}
 
+	initial := make(map[string]DeviceState, len(deviceConfigs))
 	for _, deviceConfig := range deviceConfigs {
-		dm.devices[deviceConfig.ID] = &Info{
-			Config: deviceConfig,
-		}
-
-		dm.states[deviceConfig.ID] = &State{}
-
-		dm.publishStateUpdate("initial", deviceConfig.ID, *dm.states[deviceConfig.ID])
+		dm.byTopic[deviceConfig.Topic] = deviceConfig
+		initial[deviceConfig.ID] = DeviceState{Device: deviceConfig, Version: 1}
 
 		logger.Info("Initialized device",
 			"id", deviceConfig.ID,
@@ -77,18 +69,23 @@ func NewManager(
 			"topic", deviceConfig.Topic,
 		)
 	}
+	dm.snap.Store(newSnapshot(1, initial))
+
+	for id, ds := range initial {
+		dm.publishStateUpdate("initial", id, ds.State)
+	}
 
 	return dm, nil
 }
 
 // SetPower sets the power state of a device via MQTT.
 func (dm *Manager) SetPower(ctx context.Context, deviceID string, on bool) error {
-	info, exists := dm.devices[deviceID]
+	info, exists := dm.Snapshot().Get(deviceID)
 	if !exists {
 		return fmt.Errorf("device %s not found", deviceID)
 	}
 
-	topic := fmt.Sprintf("zigbee2mqtt/%s/set", info.Config.Topic)
+	topic := fmt.Sprintf("zigbee2mqtt/%s/set", info.Device.Topic)
 	payload := map[string]string{"state": BoolToZ2MState(on)}
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -114,12 +111,12 @@ func (dm *Manager) SetPower(ctx context.Context, deviceID string, on bool) error
 
 // SetBrightness sets the brightness of a light via MQTT.
 func (dm *Manager) SetBrightness(ctx context.Context, deviceID string, brightness int) error {
-	info, exists := dm.devices[deviceID]
+	info, exists := dm.Snapshot().Get(deviceID)
 	if !exists {
 		return fmt.Errorf("device %s not found", deviceID)
 	}
 
-	topic := fmt.Sprintf("zigbee2mqtt/%s/set", info.Config.Topic)
+	topic := fmt.Sprintf("zigbee2mqtt/%s/set", info.Device.Topic)
 	// Convert HAP brightness (0-100) to Z2M brightness (0-254)
 	z2mBrightness := HAPBrightnessToZ2M(brightness)
 	payload := map[string]any{
@@ -150,14 +147,14 @@ func (dm *Manager) SetBrightness(ctx context.Context, deviceID string, brightnes
 // scale HomeKit's RotationSpeed uses -- so unlike brightness there is no
 // rescaling to do here.
 func (dm *Manager) SetFanSpeed(ctx context.Context, deviceID string, speed int) error {
-	info, exists := dm.devices[deviceID]
+	info, exists := dm.Snapshot().Get(deviceID)
 	if !exists {
 		return fmt.Errorf("device %s not found", deviceID)
 	}
 
 	speed = min(max(speed, 0), 100)
 
-	topic := fmt.Sprintf("zigbee2mqtt/%s/set", info.Config.Topic)
+	topic := fmt.Sprintf("zigbee2mqtt/%s/set", info.Device.Topic)
 	payload := map[string]any{
 		"fan_speed": speed,
 	}
@@ -181,12 +178,12 @@ func (dm *Manager) SetFanSpeed(ctx context.Context, deviceID string, speed int) 
 
 // SetColor sets the color of a light via MQTT.
 func (dm *Manager) SetColor(ctx context.Context, deviceID string, hue, saturation float64) error {
-	info, exists := dm.devices[deviceID]
+	info, exists := dm.Snapshot().Get(deviceID)
 	if !exists {
 		return fmt.Errorf("device %s not found", deviceID)
 	}
 
-	topic := fmt.Sprintf("zigbee2mqtt/%s/set", info.Config.Topic)
+	topic := fmt.Sprintf("zigbee2mqtt/%s/set", info.Device.Topic)
 	payload := map[string]any{
 		"color": map[string]any{
 			"hue":        hue,
@@ -214,12 +211,12 @@ func (dm *Manager) SetColor(ctx context.Context, deviceID string, hue, saturatio
 
 // SetColorTemp sets the color temperature of a light via MQTT.
 func (dm *Manager) SetColorTemp(ctx context.Context, deviceID string, colorTemp int) error {
-	info, exists := dm.devices[deviceID]
+	info, exists := dm.Snapshot().Get(deviceID)
 	if !exists {
 		return fmt.Errorf("device %s not found", deviceID)
 	}
 
-	topic := fmt.Sprintf("zigbee2mqtt/%s/set", info.Config.Topic)
+	topic := fmt.Sprintf("zigbee2mqtt/%s/set", info.Device.Topic)
 	payload := map[string]any{
 		"color_temp": colorTemp,
 	}
@@ -301,20 +298,14 @@ func (dm *Manager) ProcessStateEvents(ctx context.Context) {
 	for {
 		select {
 		case event := <-dm.stateSubscriber.Events():
-			dm.mu.Lock()
-			state, exists := dm.states[event.DeviceID]
-			if !exists {
-				dm.mu.Unlock()
+			ds, ok := dm.Update(event.DeviceID, event.Reading, event.At)
+			if !ok {
 				dm.logger.Warn("Received state event for unknown device", "device_id", event.DeviceID)
 				continue
 			}
 
-			*state = Apply(*state, event.Reading, event.At)
-			stateCopy := *state
-			dm.mu.Unlock()
-
 			dm.logger.Debug("Merged state from eventbus", "device_id", event.DeviceID)
-			dm.publishStateUpdate("eventbus", event.DeviceID, stateCopy)
+			dm.publishStateUpdate("eventbus", event.DeviceID, ds.State)
 
 		case <-ctx.Done():
 			return
@@ -322,63 +313,37 @@ func (dm *Manager) ProcessStateEvents(ctx context.Context) {
 	}
 }
 
-// Snapshot returns a copy of all device configs and states.
-func (dm *Manager) Snapshot() map[string]struct {
-	Device Device
-	State  State
-} {
-	dm.mu.RLock()
-	defer dm.mu.RUnlock()
-
-	result := make(map[string]struct {
-		Device Device
-		State  State
-	}, len(dm.devices))
-
-	for id, info := range dm.devices {
-		state := dm.states[id]
-		result[id] = struct {
-			Device Device
-			State  State
-		}{
-			Device: info.Config,
-			State:  *state,
-		}
-	}
-
-	return result
+// Snapshot returns the current state of every device.
+func (dm *Manager) Snapshot() *Snapshot {
+	return dm.snap.Load()
 }
 
-// Device returns the device info and state for the given ID.
-func (dm *Manager) Device(deviceID string) (Device, State, bool) {
-	dm.mu.RLock()
-	defer dm.mu.RUnlock()
+// Update merges r into the device's state and publishes a new snapshot.
+func (dm *Manager) Update(deviceID string, r Reading, at time.Time) (DeviceState, bool) {
+	dm.writeMu.Lock()
+	defer dm.writeMu.Unlock()
 
-	info, ok := dm.devices[deviceID]
+	cur := dm.snap.Load()
+	ds, ok := cur.devices[deviceID]
 	if !ok {
-		return Device{}, State{}, false
+		return DeviceState{}, false
 	}
 
-	state, ok := dm.states[deviceID]
-	if !ok {
-		return Device{}, State{}, false
-	}
+	next := newSnapshot(cur.version+1, maps.Clone(cur.devices))
+	ds.State = Apply(ds.State, r, at)
+	ds.Version = next.version
+	next.devices[deviceID] = ds
 
-	return info.Config, *state, true
+	dm.snap.Store(next)
+	close(cur.changed)
+
+	return ds, true
 }
 
-// DeviceByTopic returns the device info for the given topic.
+// DeviceByTopic returns the device configured for a zigbee2mqtt topic.
 func (dm *Manager) DeviceByTopic(topic string) (Device, bool) {
-	dm.mu.RLock()
-	defer dm.mu.RUnlock()
-
-	for _, info := range dm.devices {
-		if info.Config.Topic == topic {
-			return info.Config, true
-		}
-	}
-
-	return Device{}, false
+	d, ok := dm.byTopic[topic]
+	return d, ok
 }
 
 func (dm *Manager) publishStateUpdate(source, deviceID string, state State) {
@@ -386,10 +351,9 @@ func (dm *Manager) publishStateUpdate(source, deviceID string, state State) {
 		return
 	}
 
-	info, ok := dm.devices[deviceID]
 	name := deviceID
-	if ok {
-		name = info.Config.Name
+	if ds, ok := dm.Snapshot().Get(deviceID); ok {
+		name = ds.Device.Name
 	}
 
 	connectionState, connectionNote := connectionStatus(state.LastSeen)

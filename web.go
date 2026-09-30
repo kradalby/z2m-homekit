@@ -30,11 +30,7 @@ var cssContent string
 var jsContent string
 
 type deviceStateProvider interface {
-	Snapshot() map[string]struct {
-		Device devices.Device
-		State  devices.State
-	}
-	Device(string) (devices.Device, devices.State, bool)
+	Snapshot() *devices.Snapshot
 }
 
 type DeviceController interface {
@@ -793,18 +789,11 @@ func (ws *WebServer) HandleIndex(w http.ResponseWriter, r *http.Request) {
 	var deviceElements []elem.Node
 
 	snapshot := ws.deviceProvider.Snapshot()
-	var deviceIDs []string
-	for id := range snapshot {
-		deviceIDs = append(deviceIDs, id)
-	}
-	slices.Sort(deviceIDs)
-
-	for _, id := range deviceIDs {
-		item := snapshot[id]
-		if item.Device.Web != nil && !*item.Device.Web {
+	for _, ds := range snapshot.All() {
+		if ds.Device.Web != nil && !*ds.Device.Web {
 			continue
 		}
-		deviceElements = append(deviceElements, ws.renderDeviceCard(id, item.Device, item.State))
+		deviceElements = append(deviceElements, ws.renderDeviceCard(ds.Device.ID, ds.Device, ds.State))
 	}
 
 	var eventElements []elem.Node
@@ -857,7 +846,7 @@ func (ws *WebServer) HandleIndex(w http.ResponseWriter, r *http.Request) {
 
 	content := elem.Div(attrs.Props{},
 		elem.H1(attrs.Props{}, elem.Text("Zigbee2MQTT HomeKit Bridge")),
-		elem.P(attrs.Props{}, elem.Text(fmt.Sprintf("Managing %d devices", len(snapshot)))),
+		elem.P(attrs.Props{}, elem.Text(fmt.Sprintf("Managing %d devices", snapshot.Len()))),
 		homekitSection,
 		elem.Div(attrs.Props{attrs.Class: "devices-grid"}, deviceElements...),
 		elem.Div(attrs.Props{attrs.Class: "events"},
@@ -882,13 +871,13 @@ func (ws *WebServer) HandleToggle(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/toggle/")
 	deviceID := path
 
-	device, state, exists := ws.deviceProvider.Device(deviceID)
+	ds, exists := ws.deviceProvider.Snapshot().Get(deviceID)
 	if !exists {
 		http.Error(w, "Device not found", http.StatusNotFound)
 		return
 	}
 
-	if device.Web != nil && !*device.Web {
+	if ds.Device.Web != nil && !*ds.Device.Web {
 		http.Error(w, "Device not available on web", http.StatusNotFound)
 		return
 	}
@@ -905,13 +894,10 @@ func (ws *WebServer) HandleToggle(w http.ResponseWriter, r *http.Request) {
 	ws.LogEvent(fmt.Sprintf("Web UI: Toggle %s -> %v", deviceID, on))
 
 	if r.Header.Get("HX-Request") == "true" {
-		if updatedDevice, updatedState, ok := ws.deviceProvider.Device(deviceID); ok {
-			device = updatedDevice
-			state = updatedState
-		}
+		ds, _ = ws.deviceProvider.Snapshot().Get(deviceID)
 
 		w.Header().Set("Content-Type", "text/html")
-		if _, err := fmt.Fprint(w, ws.renderDeviceCard(deviceID, device, state).Render()); err != nil {
+		if _, err := fmt.Fprint(w, ws.renderDeviceCard(deviceID, ds.Device, ds.State).Render()); err != nil {
 			ws.logger.Error("Failed to write response", slog.Any("error", err))
 		}
 		return
@@ -930,13 +916,13 @@ func (ws *WebServer) HandleBrightness(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/brightness/")
 	deviceID := path
 
-	device, state, exists := ws.deviceProvider.Device(deviceID)
+	ds, exists := ws.deviceProvider.Snapshot().Get(deviceID)
 	if !exists {
 		http.Error(w, "Device not found", http.StatusNotFound)
 		return
 	}
 
-	if device.Web != nil && !*device.Web {
+	if ds.Device.Web != nil && !*ds.Device.Web {
 		http.Error(w, "Device not available on web", http.StatusNotFound)
 		return
 	}
@@ -960,13 +946,10 @@ func (ws *WebServer) HandleBrightness(w http.ResponseWriter, r *http.Request) {
 	ws.LogEvent(fmt.Sprintf("Web UI: Brightness %s -> %d%%", deviceID, brightness))
 
 	if r.Header.Get("HX-Request") == "true" {
-		if updatedDevice, updatedState, ok := ws.deviceProvider.Device(deviceID); ok {
-			device = updatedDevice
-			state = updatedState
-		}
+		ds, _ = ws.deviceProvider.Snapshot().Get(deviceID)
 
 		w.Header().Set("Content-Type", "text/html")
-		if _, err := fmt.Fprint(w, ws.renderDeviceCard(deviceID, device, state).Render()); err != nil {
+		if _, err := fmt.Fprint(w, ws.renderDeviceCard(deviceID, ds.Device, ds.State).Render()); err != nil {
 			ws.logger.Error("Failed to write response", slog.Any("error", err))
 		}
 		return
@@ -1124,7 +1107,7 @@ func (ws *WebServer) HandleHealth(w http.ResponseWriter, r *http.Request) {
 		Timestamp  time.Time `json:"timestamp"`
 	}{
 		Status:     "ok",
-		Devices:    len(snapshot),
+		Devices:    snapshot.Len(),
 		SSEClients: sseClients,
 		Timestamp:  time.Now(),
 	}

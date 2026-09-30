@@ -41,10 +41,7 @@ type Bus struct {
 	logger  *slog.Logger
 	ctx     context.Context
 	cancel  context.CancelFunc
-
-	lastStates map[string]StateUpdateEvent
-	stateMu    sync.Mutex
-	mu         sync.RWMutex
+	mu      sync.RWMutex
 }
 
 // New constructs a new bus with the known clients registered.
@@ -56,13 +53,12 @@ func New(logger *slog.Logger) (*Bus, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	b := &Bus{
-		bus:        eventbus.New(),
-		clients:    make(map[ClientName]*eventbus.Client),
-		pubs:       make(map[*eventbus.Client]clientPublishers),
-		logger:     logger,
-		ctx:        ctx,
-		cancel:     cancel,
-		lastStates: make(map[string]StateUpdateEvent),
+		bus:     eventbus.New(),
+		clients: make(map[ClientName]*eventbus.Client),
+		pubs:    make(map[*eventbus.Client]clientPublishers),
+		logger:  logger,
+		ctx:     ctx,
+		cancel:  cancel,
 	}
 
 	for _, name := range []ClientName{
@@ -112,20 +108,8 @@ func (b *Bus) publishers(client *eventbus.Client) (clientPublishers, bool) {
 	return p, ok
 }
 
-// PublishStateUpdate emits a deduplicated state update event for SSE consumers.
+// PublishStateUpdate emits a state update event for SSE consumers.
 func (b *Bus) PublishStateUpdate(client *eventbus.Client, event StateUpdateEvent) {
-	b.stateMu.Lock()
-	defer b.stateMu.Unlock()
-
-	last, ok := b.lastStates[event.DeviceID]
-	if ok && event.Equals(last) {
-		b.logger.Debug("skipping duplicate state update",
-			slog.String("device_id", event.DeviceID),
-			slog.String("source", event.Source),
-		)
-		return
-	}
-
 	b.logger.Debug("publishing state update",
 		slog.String("device_id", event.DeviceID),
 		slog.String("source", event.Source),
@@ -134,8 +118,6 @@ func (b *Bus) PublishStateUpdate(client *eventbus.Client, event StateUpdateEvent
 	if p, ok := b.publishers(client); ok {
 		p.state.Publish(event)
 	}
-
-	b.lastStates[event.DeviceID] = event
 }
 
 // PublishCommand emits a command event for metrics/debug consumers.

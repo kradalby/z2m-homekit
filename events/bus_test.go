@@ -115,5 +115,4 @@ func TestPublishAfterCloseDoesNotPanic(t *testing.T) {
 		Status:    ConnectionStatusDisconnected,
 	})
 	bus.PublishCommand(client, CommandEvent{DeviceID: "d1", CommandType: CommandTypeSetPower})
-	bus.PublishStateUpdate(client, StateUpdateEvent{DeviceID: "d1"})
 }

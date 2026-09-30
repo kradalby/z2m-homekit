@@ -1,6 +1,35 @@
 package devices
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+// HomeKit and Web default to on; only an explicit false hides a device.
+func TestLoadConfigVisibilityDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "devices.hujson")
+	err := os.WriteFile(path, []byte(`{
+		"devices": [
+			{"id": "a", "name": "A", "topic": "a", "type": "outlet"},
+			{"id": "b", "name": "B", "topic": "b", "type": "outlet", "homekit": false, "web": false},
+		],
+	}`), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+
+	for i, want := range []bool{true, false} {
+		if d := cfg.Devices[i]; d.HomeKit != want || d.Web != want {
+			t.Errorf("%s: HomeKit=%v Web=%v, want both %v", d.ID, d.HomeKit, d.Web, want)
+		}
+	}
+}
 
 func TestZ2MBrightnessToHAP(t *testing.T) {
 	tests := []struct {

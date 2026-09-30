@@ -168,7 +168,7 @@ func climateSensors(n int) []devices.Device {
 		id := fmt.Sprintf("dev%02d", i)
 		cfg = append(cfg, devices.Device{
 			ID: id, Name: id, Topic: id, Type: devices.DeviceTypeClimateSensor,
-			Features: devices.DeviceFeatures{Temperature: true},
+			Features: devices.DeviceFeatures{Temperature: true}, Web: true,
 		})
 	}
 
@@ -273,9 +273,9 @@ func TestSSEConnectDuringUpdatesEndsOnLatest(t *testing.T) {
 // left a dashboard showing "No Leak" through an actual leak.
 func TestSSECardShowsAlarmState(t *testing.T) {
 	ws, dm := newTestWebServer(t,
-		devices.Device{ID: "leak", Name: "Leak", Topic: "leak", Type: devices.DeviceTypeLeakSensor},
-		devices.Device{ID: "smoke", Name: "Smoke", Topic: "smoke", Type: devices.DeviceTypeSmokeSensor},
-		devices.Device{ID: "door", Name: "Door", Topic: "door", Type: devices.DeviceTypeContactSensor},
+		devices.Device{ID: "leak", Name: "Leak", Topic: "leak", Type: devices.DeviceTypeLeakSensor, Web: true},
+		devices.Device{ID: "smoke", Name: "Smoke", Topic: "smoke", Type: devices.DeviceTypeSmokeSensor, Web: true},
+		devices.Device{ID: "door", Name: "Door", Topic: "door", Type: devices.DeviceTypeContactSensor, Web: true},
 	)
 
 	events := connectSSE(t, ws)
@@ -294,9 +294,8 @@ func TestSSECardShowsAlarmState(t *testing.T) {
 }
 
 func TestSSESkipsDevicesHiddenFromWeb(t *testing.T) {
-	hidden := false
 	cfg := climateSensors(2)
-	cfg[1].Web = &hidden
+	cfg[1].Web = false
 	ws, _ := newTestWebServer(t, cfg...)
 
 	events := connectSSE(t, ws)

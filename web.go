@@ -718,17 +718,13 @@ func connectionStatus(lastSeen, now time.Time) (indicator, text string) {
 	}
 }
 
-func onWeb(d devices.Device) bool {
-	return d.Web == nil || *d.Web
-}
-
 // HandleIndex renders the main dashboard
 func (ws *WebServer) HandleIndex(w http.ResponseWriter, r *http.Request) {
 	var deviceElements []elem.Node
 
 	snapshot := ws.deviceProvider.Snapshot()
 	for _, ds := range snapshot.All() {
-		if !onWeb(ds.Device) {
+		if !ds.Device.Web {
 			continue
 		}
 		deviceElements = append(deviceElements, ws.renderDeviceCard(ds.Device.ID, ds.Device, ds.State, ws.now()))
@@ -815,7 +811,7 @@ func (ws *WebServer) HandleToggle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !onWeb(ds.Device) {
+	if !ds.Device.Web {
 		http.Error(w, "Device not available on web", http.StatusNotFound)
 		return
 	}
@@ -860,7 +856,7 @@ func (ws *WebServer) HandleBrightness(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !onWeb(ds.Device) {
+	if !ds.Device.Web {
 		http.Error(w, "Device not available on web", http.StatusNotFound)
 		return
 	}
@@ -992,7 +988,7 @@ func (ws *WebServer) HandleSSE(w http.ResponseWriter, r *http.Request) {
 		snap := ws.deviceProvider.Snapshot()
 		now := ws.now()
 		for _, ds := range snap.All() {
-			if !onWeb(ds.Device) {
+			if !ds.Device.Web {
 				continue
 			}
 

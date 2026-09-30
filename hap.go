@@ -112,7 +112,7 @@ func NewHAPManager(
 	// Create accessory for each device
 	for _, device := range deviceConfigs {
 		// Skip devices that are not enabled for HomeKit
-		if device.HomeKit != nil && !*device.HomeKit {
+		if !device.HomeKit {
 			logger.Info("Skipping device for HomeKit", "device_id", device.ID, "name", device.Name)
 			continue
 		}

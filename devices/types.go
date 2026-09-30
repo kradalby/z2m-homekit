@@ -50,14 +50,31 @@ type DeviceFeatures struct {
 }
 
 // Device describes a single Zigbee device.
+//
+// HomeKit and Web default to true only when decoded from config. A Device
+// built in Go must set both: their zero value hides it from HomeKit and web.
 type Device struct {
 	ID       string         `json:"id"`
 	Name     string         `json:"name"`
 	Topic    string         `json:"topic"` // zigbee2mqtt topic suffix
 	Type     DeviceType     `json:"type"`
 	Features DeviceFeatures `json:"features"`
-	HomeKit  *bool          `json:"homekit,omitempty"` // default true
-	Web      *bool          `json:"web,omitempty"`     // default true
+	HomeKit  bool           `json:"homekit"`
+	Web      bool           `json:"web"`
+}
+
+// UnmarshalJSON defaults HomeKit and Web to true when the config omits them.
+// Resolving them here keeps Device plain values, so snapshot copies cannot
+// alias each other.
+func (d *Device) UnmarshalJSON(b []byte) error {
+	type plain Device // no methods, so decoding it does not recurse
+	v := plain{HomeKit: true, Web: true}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	*d = Device(v)
+
+	return nil
 }
 
 // Config defines the device configuration file structure.
@@ -108,16 +125,6 @@ func LoadConfig(path string) (*Config, error) {
 			return nil, fmt.Errorf("duplicate device id %q", device.ID)
 		}
 		seenIDs[device.ID] = struct{}{}
-
-		// Set defaults for HomeKit and Web if not specified
-		if cfg.Devices[i].HomeKit == nil {
-			defaultTrue := true
-			cfg.Devices[i].HomeKit = &defaultTrue
-		}
-		if cfg.Devices[i].Web == nil {
-			defaultTrue := true
-			cfg.Devices[i].Web = &defaultTrue
-		}
 	}
 
 	return &cfg, nil

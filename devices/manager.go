@@ -9,6 +9,7 @@ import (
 	"time"
 
 	mqtt "github.com/mochi-mqtt/server/v2"
+	"tailscale.com/types/opt"
 	"tailscale.com/util/eventbus"
 
 	"github.com/kradalby/z2m-homekit/events"
@@ -65,12 +66,7 @@ func NewManager(
 			Config: deviceConfig,
 		}
 
-		dm.states[deviceConfig.ID] = &State{
-			ID:          deviceConfig.ID,
-			Name:        deviceConfig.Name,
-			LastUpdated: time.Now(),
-			LastSeen:    time.Time{},
-		}
+		dm.states[deviceConfig.ID] = &State{}
 
 		dm.publishStateUpdate("initial", deviceConfig.ID, *dm.states[deviceConfig.ID])
 
@@ -313,59 +309,11 @@ func (dm *Manager) ProcessStateEvents(ctx context.Context) {
 				continue
 			}
 
-			if len(event.UpdatedFields) > 0 {
-				// Selective update based on what changed
-				for _, field := range event.UpdatedFields {
-					switch field {
-					case "On":
-						state.On = event.State.On
-					case "Brightness":
-						state.Brightness = event.State.Brightness
-					case "Hue":
-						state.Hue = event.State.Hue
-					case "Saturation":
-						state.Saturation = event.State.Saturation
-					case "ColorTemp":
-						state.ColorTemp = event.State.ColorTemp
-					case "Temperature":
-						state.Temperature = event.State.Temperature
-					case "Humidity":
-						state.Humidity = event.State.Humidity
-					case "Battery":
-						state.Battery = event.State.Battery
-					case "Occupancy":
-						state.Occupancy = event.State.Occupancy
-					case "Illuminance":
-						state.Illuminance = event.State.Illuminance
-					case "Pressure":
-						state.Pressure = event.State.Pressure
-					case "Contact":
-						state.Contact = event.State.Contact
-					case "WaterLeak":
-						state.WaterLeak = event.State.WaterLeak
-					case "Smoke":
-						state.Smoke = event.State.Smoke
-					case "Tamper":
-						state.Tamper = event.State.Tamper
-					case "FanSpeed":
-						state.FanSpeed = event.State.FanSpeed
-					case "LinkQuality":
-						state.LinkQuality = event.State.LinkQuality
-					case "LastSeen":
-						state.LastSeen = event.State.LastSeen
-					case "LastUpdated":
-						state.LastUpdated = event.State.LastUpdated
-					}
-				}
-			}
-
+			*state = Apply(*state, event.Reading, event.At)
 			stateCopy := *state
 			dm.mu.Unlock()
 
-			dm.logger.Debug("Merged state from eventbus",
-				"device_id", event.DeviceID,
-				"updated_fields", event.UpdatedFields,
-			)
+			dm.logger.Debug("Merged state from eventbus", "device_id", event.DeviceID)
 			dm.publishStateUpdate("eventbus", event.DeviceID, stateCopy)
 
 		case <-ctx.Done():
@@ -448,9 +396,8 @@ func (dm *Manager) publishStateUpdate(source, deviceID string, state State) {
 
 	// Convert brightness to HAP scale for events
 	var brightnessHAP *int
-	if state.Brightness != nil {
-		b := Z2MBrightnessToHAP(*state.Brightness)
-		brightnessHAP = &b
+	if b, ok := state.Brightness.GetOk(); ok {
+		brightnessHAP = new(Z2MBrightnessToHAP(b))
 	}
 
 	dm.eventBus.PublishStateUpdate(dm.stateEventClient, events.StateUpdateEvent{
@@ -458,28 +405,36 @@ func (dm *Manager) publishStateUpdate(source, deviceID string, state State) {
 		Source:          source,
 		DeviceID:        deviceID,
 		Name:            name,
-		On:              state.On,
+		On:              ptr(state.On),
 		Brightness:      brightnessHAP,
-		Hue:             state.Hue,
-		Saturation:      state.Saturation,
-		ColorTemp:       state.ColorTemp,
-		Temperature:     state.Temperature,
-		Humidity:        state.Humidity,
-		Battery:         state.Battery,
-		Occupancy:       state.Occupancy,
-		Illuminance:     state.Illuminance,
-		Pressure:        state.Pressure,
-		Contact:         state.Contact,
-		WaterLeak:       state.WaterLeak,
-		Smoke:           state.Smoke,
-		Tamper:          state.Tamper,
-		FanSpeed:        state.FanSpeed,
-		LinkQuality:     state.LinkQuality,
+		Hue:             ptr(state.Hue),
+		Saturation:      ptr(state.Saturation),
+		ColorTemp:       ptr(state.ColorTemp),
+		Temperature:     ptr(state.Temperature),
+		Humidity:        ptr(state.Humidity),
+		Battery:         ptr(state.Battery),
+		Occupancy:       ptr(state.Occupancy),
+		Illuminance:     ptr(state.Illuminance),
+		Pressure:        ptr(state.Pressure),
+		Contact:         ptr(state.Contact),
+		WaterLeak:       ptr(state.WaterLeak),
+		Smoke:           ptr(state.Smoke),
+		Tamper:          ptr(state.Tamper),
+		FanSpeed:        ptr(state.FanSpeed),
+		LinkQuality:     state.LinkQuality.Get(),
 		LastSeen:        state.LastSeen,
-		LastUpdated:     state.LastUpdated,
+		LastUpdated:     state.LastSeen,
 		ConnectionState: connectionState,
 		ConnectionNote:  connectionNote,
 	})
+}
+
+func ptr[T any](v opt.Value[T]) *T {
+	if x, ok := v.GetOk(); ok {
+		return &x
+	}
+
+	return nil
 }
 
 func connectionStatus(lastSeen time.Time) (string, string) {

@@ -239,14 +239,31 @@ func (ws *WebServer) renderDeviceCard(deviceID string, info devices.Device, stat
 
 	return elem.Div(
 		attrs.Props{
-			attrs.ID:         "device-" + deviceID,
 			attrs.Class:      "device " + statusClass,
 			"data-device-id": deviceID,
-			"sse-swap":       sseEventName(deviceID),
-			"hx-swap":        "outerHTML",
 		},
 		cardChildren...,
 	)
+}
+
+// renderDeviceSlot wraps a card in the element that listens for its SSE
+// event. htmx registers that listener only when it processes the element, a
+// settle delay after swapping it in, so replacing the element would drop
+// events arriving in between; swaps fill the slot instead.
+func renderDeviceSlot(deviceID string, card elem.Node) elem.Node {
+	return elem.Div(
+		attrs.Props{
+			attrs.ID:    slotID(deviceID),
+			attrs.Class: "device-slot",
+			"sse-swap":  sseEventName(deviceID),
+			"hx-swap":   "innerHTML",
+		},
+		card,
+	)
+}
+
+func slotID(deviceID string) string {
+	return "device-" + deviceID
 }
 
 func (ws *WebServer) getDeviceIcon(deviceType devices.DeviceType) string {
@@ -518,8 +535,8 @@ func (ws *WebServer) renderFan(deviceID string, info devices.Device, state devic
 	cardChildren = append(cardChildren, elem.Form(
 		attrs.Props{
 			"hx-post":   "/toggle/" + deviceID,
-			"hx-target": "#device-" + deviceID,
-			"hx-swap":   "outerHTML",
+			"hx-target": "#" + slotID(deviceID),
+			"hx-swap":   "innerHTML",
 		},
 		elem.Input(attrs.Props{attrs.Type: "hidden", attrs.Name: "action", attrs.Value: buttonAction, "data-role": "action-input"}),
 		elem.Button(
@@ -580,8 +597,8 @@ func (ws *WebServer) renderLightbulb(deviceID string, info devices.Device, state
 					"data-role":      "brightness-slider",
 					"hx-post":        "/brightness/" + deviceID,
 					"hx-trigger":     "change",
-					"hx-target":      "#device-" + deviceID,
-					"hx-swap":        "outerHTML",
+					"hx-target":      "#" + slotID(deviceID),
+					"hx-swap":        "innerHTML",
 					"hx-include":     "this",
 				}),
 			),
@@ -629,8 +646,8 @@ func (ws *WebServer) renderLightbulb(deviceID string, info devices.Device, state
 	cardChildren = append(cardChildren, elem.Form(
 		attrs.Props{
 			"hx-post":   "/toggle/" + deviceID,
-			"hx-target": "#device-" + deviceID,
-			"hx-swap":   "outerHTML",
+			"hx-target": "#" + slotID(deviceID),
+			"hx-swap":   "innerHTML",
 		},
 		elem.Input(attrs.Props{attrs.Type: "hidden", attrs.Name: "action", attrs.Value: buttonAction, "data-role": "action-input"}),
 		elem.Button(
@@ -676,8 +693,8 @@ func (ws *WebServer) renderOutlet(deviceID string, info devices.Device, state de
 	cardChildren = append(cardChildren, elem.Form(
 		attrs.Props{
 			"hx-post":   "/toggle/" + deviceID,
-			"hx-target": "#device-" + deviceID,
-			"hx-swap":   "outerHTML",
+			"hx-target": "#" + slotID(deviceID),
+			"hx-swap":   "innerHTML",
 		},
 		elem.Input(attrs.Props{attrs.Type: "hidden", attrs.Name: "action", attrs.Value: buttonAction, "data-role": "action-input"}),
 		elem.Button(
@@ -735,7 +752,8 @@ func (ws *WebServer) HandleIndex(w http.ResponseWriter, r *http.Request) {
 		if !ds.Device.Web {
 			continue
 		}
-		deviceElements = append(deviceElements, ws.renderDeviceCard(ds.Device.ID, ds.Device, ds.State, ws.now()))
+		card := ws.renderDeviceCard(ds.Device.ID, ds.Device, ds.State, ws.now())
+		deviceElements = append(deviceElements, renderDeviceSlot(ds.Device.ID, card))
 	}
 
 	var eventElements []elem.Node

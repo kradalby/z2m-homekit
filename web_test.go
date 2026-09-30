@@ -384,3 +384,81 @@ func TestPageLoadsOnlyLocalScripts(t *testing.T) {
 		}
 	}
 }
+
+var (
+	startTagRE = regexp.MustCompile(`<[a-zA-Z][^>]*>`)
+	attrRE     = regexp.MustCompile(`([\w-]+)="([^"]*)"`)
+)
+
+// startTags returns the attributes of every start tag in s.
+func startTags(s string) []map[string]string {
+	var tags []map[string]string
+	for _, tag := range startTagRE.FindAllString(s, -1) {
+		attrs := map[string]string{}
+		for _, m := range attrRE.FindAllStringSubmatch(tag, -1) {
+			attrs[m[1]] = m[2]
+		}
+		tags = append(tags, attrs)
+	}
+
+	return tags
+}
+
+// htmx registers an sse-swap listener only when it processes the element, a
+// settle delay after swapping it in, so replacing a listening element drops
+// the events that arrive in between. Listeners must sit on slots that every
+// swap fills rather than replaces.
+func TestSwapsKeepSSEListeners(t *testing.T) {
+	cfg := []devices.Device{
+		{
+			ID: "lamp", Name: "Lamp", Topic: "lamp", Type: devices.DeviceTypeLightbulb,
+			Features: devices.DeviceFeatures{Brightness: true}, Web: true,
+		},
+		{ID: "plug", Name: "Plug", Topic: "plug", Type: devices.DeviceTypeOutlet, Web: true},
+		{ID: "fan", Name: "Fan", Topic: "fan", Type: devices.DeviceTypeFan, Web: true},
+	}
+	ws, dm := newTestWebServer(t, cfg...)
+	ws.hapPin = "00102003"
+	report(t, dm, "lamp", func(r *devices.Reading) {
+		r.On.Set(true)
+		r.Brightness.Set(200)
+	})
+
+	rec := httptest.NewRecorder()
+	ws.HandleIndex(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	slots := map[string]bool{}
+	for _, a := range startTags(rec.Body.String()) {
+		if ev, ok := a["sse-swap"]; ok {
+			if a["hx-swap"] != "innerHTML" || a["id"] != ev {
+				t.Errorf("listener %v: want id %q and hx-swap innerHTML", a, ev)
+			}
+			slots["#"+a["id"]] = true
+		}
+	}
+	if len(slots) != len(cfg) {
+		t.Fatalf("page has %d listener slots, want %d", len(slots), len(cfg))
+	}
+
+	events := connectSSE(t, ws)
+	got := cards{}
+	got.await(t, events, "every card", func(c cards) bool { return len(c) == len(cfg) })
+
+	controls := 0
+	for name, card := range got {
+		for _, a := range startTags(card) {
+			if _, ok := a["sse-swap"]; ok {
+				t.Errorf("%s: swapped-in card carries a listener: %v", name, a)
+			}
+			if target, ok := a["hx-target"]; ok {
+				controls++
+				if !slots[target] || a["hx-swap"] != "innerHTML" {
+					t.Errorf("%s: control swaps %q into %q, want innerHTML into a slot", name, a["hx-swap"], target)
+				}
+			}
+		}
+	}
+	if controls < len(cfg) {
+		t.Errorf("found %d controls, want at least one per device", controls)
+	}
+}

@@ -36,6 +36,11 @@ p {
     }
 }
 
+/* Slots only host the SSE listener; cards stay the grid items. */
+.device-slot {
+    display: contents;
+}
+
 .device {
     border: 1px solid #e2e8f0;
     padding: 20px;

@@ -36,6 +36,19 @@ p {
     }
 }
 
+.command-error {
+    margin: 16px 0;
+    padding: 10px 14px;
+    border: 1px solid #f87171;
+    border-radius: 8px;
+    background: #fef2f2;
+    color: #b91c1c;
+}
+
+.command-error:empty {
+    display: none;
+}
+
 /* Slots only host the SSE listener; cards stay the grid items. */
 .device-slot {
     display: contents;

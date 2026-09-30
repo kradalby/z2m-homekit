@@ -110,14 +110,6 @@ func Main() {
 		}
 	}()
 
-	// Initialize metrics collector
-	metricsCollector, err := metrics.NewCollector(ctx, logger, eventBus, nil)
-	if err != nil {
-		slog.Error("Failed to initialize metrics collector", "error", err)
-		os.Exit(1)
-	}
-	defer metricsCollector.Close()
-
 	commands := make(chan devices.CommandEvent, 10)
 
 	localIP, err := getLocalIP()
@@ -143,6 +135,14 @@ func Main() {
 		slog.Error("Failed to initialize device manager", "error", err)
 		os.Exit(1)
 	}
+
+	// Initialize metrics collector
+	metricsCollector, err := metrics.NewCollector(ctx, logger, eventBus, deviceManager, nil)
+	if err != nil {
+		slog.Error("Failed to initialize metrics collector", "error", err)
+		os.Exit(1)
+	}
+	defer metricsCollector.Close()
 
 	// Add MQTT hook for message processing
 	mqttClient, err := eventBus.Client(events.ClientMQTT)
